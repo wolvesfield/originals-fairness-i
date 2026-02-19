@@ -1,0 +1,149 @@
+import hashlib
+import hmac
+import json
+import os
+import sqlite3
+from typing import Any, Dict, Iterable, List, Optional
+
+import requests
+
+
+def generate_game_hash(server_seed: str, client_seed: str, nonce: int, round: int = 0) -> str:
+    """
+    Stake/Roobet provably fair hash:
+    HMAC_SHA256(key=server_seed, message=f"{client_seed}:{nonce}:{round}")
+    """
+    payload = f"{client_seed}:{nonce}:{round}"
+    digest = hmac.new(server_seed.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256)
+    return digest.hexdigest()
+
+
+class StakeIngestionClient:
+    def __init__(self, token: Optional[str] = None, base_url: str = "https://api.stake.com/api") -> None:
+        self.base_url = base_url.rstrip("/")
+        self.token = token or os.getenv("STAKE_API_TOKEN")
+        if not self.token:
+            raise ValueError("STAKE_API_TOKEN is required for authenticated ingestion")
+        self.session = requests.Session()
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/json",
+                "User-Agent": "originals-fairness-ingestor/1.0",
+            }
+        )
+
+    def fetch_bet_history(self, limit: int = 100, page: int = 1, timeout: int = 10) -> List[Dict[str, Any]]:
+        """
+        Pull bet history for the authenticated user.
+        Endpoint path may need alignment with Stake's official API surface.
+        """
+        url = f"{self.base_url}/bets"
+        params = {"limit": limit, "page": page}
+        response = self.session.get(url, params=params, timeout=timeout)
+        response.raise_for_status()
+        payload = response.json()
+        # Expecting payload format: {"data": [...]} – adjust if API differs.
+        if isinstance(payload, dict) and "data" in payload:
+            return payload["data"]  # type: ignore[return-value]
+        if isinstance(payload, list):
+            return payload
+        raise ValueError("Unexpected bet history response structure")
+
+
+def init_baseline_db(db_path: str = "baseline.db") -> sqlite3.Connection:
+    """
+    Initialize SQLite schema for Seeds, Bets, Anomalies, and meta checksum storage.
+    """
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS Seeds (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            server_seed_hash TEXT NOT NULL,
+            client_seed TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS Bets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nonce INTEGER NOT NULL,
+            round INTEGER DEFAULT 0,
+            game_hash TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            raw JSON,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS Anomalies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nonce INTEGER,
+            reason TEXT NOT NULL,
+            details TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS Meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.commit()
+    return conn
+
+
+def _checksum_from_bets(bets: Iterable[Dict[str, Any]]) -> str:
+    material = json.dumps(sorted(bets, key=lambda b: json.dumps(b, sort_keys=True)), separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def record_baseline(conn: sqlite3.Connection, bets: List[Dict[str, Any]]) -> str:
+    """
+    Persist baseline bets and return checksum. Assumes baseline pull is the gold standard.
+    """
+    cur = conn.cursor()
+    for bet in bets:
+        nonce = bet.get("nonce") or 0
+        round_no = bet.get("round") or 0
+        payload = bet.get("payload") or ""
+        game_hash = bet.get("hash") or bet.get("game_hash") or ""
+        cur.execute(
+            """
+            INSERT INTO Bets (nonce, round, game_hash, payload, raw)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (nonce, round_no, game_hash, json.dumps(payload), json.dumps(bet)),
+        )
+    checksum = _checksum_from_bets(bets)
+    cur.execute(
+        """
+        INSERT INTO Meta(key, value) VALUES('baseline_checksum', ?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP
+        """,
+        (checksum,),
+    )
+    conn.commit()
+    return checksum
+
+
+def ingest_and_baseline(db_path: str = "baseline.db", limit: int = 100) -> str:
+    """
+    Run authenticated ingestion and record the first pull as the gold baseline checksum.
+    """
+    client = StakeIngestionClient()
+    conn = init_baseline_db(db_path)
+    bets = client.fetch_bet_history(limit=limit)
+    return record_baseline(conn, bets)
