@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Check } from '@phosphor-icons/react'
 import type { Platform, GridSize } from '@/lib/types'
 import { toast } from 'sonner'
+import { generateMinePositions } from '@/utils/fairnessEngine'
 
 interface MinesGameProps {
   platform: Platform
@@ -41,26 +42,7 @@ export default function MinesGame({
       return
     }
 
-    const mines: number[] = []
-    let seed = `${serverSeedHash}${clientSeed}${nonce}`
-    
-    for (let i = 0; i < mineCount; i++) {
-      let hash = 0
-      for (let j = 0; j < seed.length; j++) {
-        hash = ((hash << 5) - hash) + seed.charCodeAt(j)
-        hash = hash & hash
-      }
-      
-      const position = Math.abs(hash) % totalCells
-      
-      if (!mines.includes(position)) {
-        mines.push(position)
-      } else {
-        i--
-      }
-      
-      seed = seed + i
-    }
+    const mines = generateMinePositions(serverSeedHash, clientSeed, nonce, mineCount, totalCells)
 
     setVerifiedMines(mines)
     setIsVerified(true)

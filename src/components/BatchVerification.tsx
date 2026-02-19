@@ -6,9 +6,14 @@ import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { ListChecks, Play, X, Download } from '@phosphor-icons/react'
+import { ListChecks, Play, X, Download, FloppyDisk } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import type { Platform, GameType, BatchVerificationResult } from '@/lib/types'
+import {
+  generateMinePositions as fairMines,
+  generateKenoNumbers as fairKeno,
+  calculateCrashPoint as fairCrash
+} from '@/utils/fairnessEngine'
 
 interface BatchVerificationProps {
   platform: Platform
@@ -28,77 +33,12 @@ export default function BatchVerification({
   const [startNonce, setStartNonce] = useState(0)
   const [endNonce, setEndNonce] = useState(9)
   const [isVerifying, setIsVerifying] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [progress, setProgress] = useState(0)
   const [results, setResults] = useState<BatchVerificationResult[]>([])
 
   const totalRounds = Math.max(0, endNonce - startNonce + 1)
   const maxBatchSize = 1000
-
-  const generateMinePositions = (nonce: number, mineCount: number, gridSize: number): number[] => {
-    const totalCells = gridSize * gridSize
-    const mines: number[] = []
-    let seed = `${serverSeedHash}${clientSeed}${nonce}`
-    
-    for (let i = 0; i < mineCount; i++) {
-      let hash = 0
-      for (let j = 0; j < seed.length; j++) {
-        hash = ((hash << 5) - hash) + seed.charCodeAt(j)
-        hash = hash & hash
-      }
-      
-      const position = Math.abs(hash) % totalCells
-      
-      if (!mines.includes(position)) {
-        mines.push(position)
-      } else {
-        i--
-      }
-      
-      seed = seed + i
-    }
-
-    return mines
-  }
-
-  const generateKenoNumbers = (nonce: number): number[] => {
-    const numbers: number[] = []
-    let seed = `${serverSeedHash}${clientSeed}${nonce}`
-    
-    for (let i = 0; i < 10; i++) {
-      let hash = 0
-      for (let j = 0; j < seed.length; j++) {
-        hash = ((hash << 5) - hash) + seed.charCodeAt(j)
-        hash = hash & hash
-      }
-      
-      const position = (Math.abs(hash) % 40) + 1
-      
-      if (!numbers.includes(position)) {
-        numbers.push(position)
-      } else {
-        i--
-      }
-      
-      seed = seed + i
-    }
-
-    return numbers.sort((a, b) => a - b)
-  }
-
-  const calculateCrashPoint = (nonce: number): number => {
-    let seed = `${serverSeedHash}${clientSeed}${nonce}`
-    let hash = 0
-    
-    for (let i = 0; i < seed.length; i++) {
-      hash = ((hash << 5) - hash) + seed.charCodeAt(i)
-      hash = hash & hash
-    }
-    
-    const normalized = Math.abs(hash) / 2147483647
-    const crash = Math.max(1.01, Math.min(100, 1 + normalized * 10))
-    
-    return parseFloat(crash.toFixed(2))
-  }
 
   const handleBatchVerify = async () => {
     if (!serverSeedHash || !clientSeed) {
@@ -131,21 +71,22 @@ export default function BatchVerification({
       if (game === 'mines') {
         const mineCount = 3
         const gridSize = platform === 'stake' ? 5 : 5
-        const mines = generateMinePositions(nonce, mineCount, gridSize)
+        const totalCells = gridSize * gridSize
+        const mines = fairMines(serverSeedHash, clientSeed, nonce, mineCount, totalCells)
         result = {
           nonce,
           game: 'mines',
           data: { mines, mineCount, gridSize }
         }
       } else if (game === 'keno') {
-        const numbers = generateKenoNumbers(nonce)
+        const numbers = fairKeno(serverSeedHash, clientSeed, nonce, 10, 40)
         result = {
           nonce,
           game: 'keno',
           data: { numbers }
         }
       } else {
-        const crashPoint = calculateCrashPoint(nonce)
+        const crashPoint = fairCrash(serverSeedHash, clientSeed, nonce)
         result = {
           nonce,
           game: 'crash',
@@ -185,6 +126,42 @@ export default function BatchVerification({
     URL.revokeObjectURL(url)
     
     toast.success('Results exported successfully')
+  }
+
+  const handleSaveToDatabase = async () => {
+    if (results.length === 0) return
+
+    setIsSaving(true)
+
+    const records = results.map((r) => ({
+      id: `${game}-${serverSeedHash.slice(0, 8)}-${r.nonce}`,
+      server_seed: serverSeedHash,
+      client_seed: clientSeed,
+      nonce: r.nonce,
+      game_type: r.game,
+      result_data: JSON.stringify(r.data),
+      created_at: new Date().toISOString()
+    }))
+
+    try {
+      const res = await fetch('/api/seeds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(records)
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Failed to save')
+      }
+
+      const data = await res.json()
+      toast.success(`Saved ${data.count} records to database`)
+    } catch (err: any) {
+      toast.error(`Database save failed: ${err.message}`)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -268,6 +245,18 @@ export default function BatchVerification({
           >
             <Download size={20} />
             Export
+          </Button>
+        )}
+
+        {results.length > 0 && (
+          <Button
+            onClick={handleSaveToDatabase}
+            disabled={isSaving}
+            variant="outline"
+            className="gap-2"
+          >
+            <FloppyDisk size={20} />
+            {isSaving ? 'Saving...' : 'Save to DB'}
           </Button>
         )}
       </div>
