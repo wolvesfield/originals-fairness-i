@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Check } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { generateKenoNumbers } from '@/utils/fairnessEngine'
 
 interface KenoGameProps {
   serverSeedHash: string
@@ -25,28 +26,9 @@ export default function KenoGame({
       return
     }
 
-    const numbers: number[] = []
-    let seed = `${serverSeedHash}${clientSeed}${nonce}`
-    
-    for (let i = 0; i < 10; i++) {
-      let hash = 0
-      for (let j = 0; j < seed.length; j++) {
-        hash = ((hash << 5) - hash) + seed.charCodeAt(j)
-        hash = hash & hash
-      }
-      
-      const position = (Math.abs(hash) % 40) + 1
-      
-      if (!numbers.includes(position)) {
-        numbers.push(position)
-      } else {
-        i--
-      }
-      
-      seed = seed + i
-    }
+    const numbers = generateKenoNumbers(serverSeedHash, clientSeed, nonce, 10, 40)
 
-    setSelectedNumbers(numbers.sort((a, b) => a - b))
+    setSelectedNumbers(numbers)
     setIsVerified(true)
     onVerify()
     toast.success(`Selected 10 numbers: ${numbers.join(', ')}`)
