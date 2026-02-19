@@ -19,3 +19,15 @@ export interface VerificationResult {
   nonce: number
   timestamp: number
 }
+
+export interface BatchVerificationResult {
+  nonce: number
+  game: GameType
+  data: {
+    mines?: number[]
+    mineCount?: number
+    gridSize?: number
+    numbers?: number[]
+    crashPoint?: number
+  }
+}

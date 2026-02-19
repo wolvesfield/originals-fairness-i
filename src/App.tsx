@@ -3,19 +3,22 @@ import { useKV } from '@github/spark/hooks'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
-import { GridFour, NumberSquareEight, TrendUp } from '@phosphor-icons/react'
+import { GridFour, NumberSquareEight, TrendUp, ListChecks } from '@phosphor-icons/react'
 import type { Platform, GameType, VerificationResult } from '@/lib/types'
 import ConfigPanel from '@/components/ConfigPanel'
 import ServerSeedReveal from '@/components/ServerSeedReveal'
 import MinesGame from '@/components/MinesGame'
 import KenoGame from '@/components/KenoGame'
 import CrashGame from '@/components/CrashGame'
+import BatchVerification from '@/components/BatchVerification'
 
 function App() {
   const [platform, setPlatform] = useState<Platform>('stake')
   const [activeTab, setActiveTab] = useState<GameType>('mines')
   const [verifications, setVerifications] = useKV<VerificationResult[]>('verification-history', [])
+  const [showBatchVerification, setShowBatchVerification] = useState(false)
 
   const [serverSeedHash, setServerSeedHash] = useState('')
   const [clientSeed, setClientSeed] = useState('')
@@ -91,7 +94,28 @@ function App() {
 
         <ServerSeedReveal serverSeedHash={serverSeedHash} />
 
-        <Card className="p-6">
+        {showBatchVerification ? (
+          <BatchVerification
+            platform={platform}
+            game={activeTab}
+            serverSeedHash={serverSeedHash}
+            clientSeed={clientSeed}
+            onClose={() => setShowBatchVerification(false)}
+          />
+        ) : (
+          <>
+            <div className="flex justify-end">
+              <Button
+                onClick={() => setShowBatchVerification(true)}
+                variant="outline"
+                className="gap-2 border-primary/50 hover:bg-primary/10"
+              >
+                <ListChecks size={20} />
+                Batch Verification
+              </Button>
+            </div>
+
+            <Card className="p-6">
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GameType)}>
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="mines" className="gap-2">
@@ -138,6 +162,8 @@ function App() {
             </TabsContent>
           </Tabs>
         </Card>
+          </>
+        )}
       </div>
       <Toaster />
     </div>
