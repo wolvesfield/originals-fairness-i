@@ -54,6 +54,13 @@ This is a specialized utility tool with three distinct game verification modules
 - **Progression**: Complete verification → Object saved to KV store → History updates → User can review past results
 - **Success criteria**: Data persists across sessions, includes all relevant parameters (platform, game, seeds, nonce)
 
+### Server Seed Reveal & Hash Verification
+- **Functionality**: Accept a revealed server seed and cryptographically verify it matches the original server seed hash
+- **Purpose**: Prove that the server seed was predetermined and not manipulated after gameplay
+- **Trigger**: User enters revealed server seed and clicks "Verify Hash"
+- **Progression**: Enter revealed seed → Click verify → SHA-256 hash computed → Hash compared to original → Success/failure indicator shown → Visual feedback (green shield for valid, red for invalid)
+- **Success criteria**: SHA-256 hash correctly computed, comparison accurate, clear visual feedback on match/mismatch, displays both computed and expected hashes for transparency
+
 ## Edge Case Handling
 
 - **Invalid Mine Count**: Prevent verification if Mine Count exceeds grid size - 1; show validation error
@@ -61,6 +68,9 @@ This is a specialized utility tool with three distinct game verification modules
 - **Platform Switch Mid-Configuration**: Reset grid size to valid default for new platform
 - **Rapid Verify Clicks**: Debounce or disable button during animation/processing
 - **Crash Animation State**: Ensure clean restart when switching tabs or re-verifying
+- **Server Seed Reveal - Empty Input**: Disable verify button until revealed seed is entered
+- **Server Seed Reveal - Hash Mismatch**: Clear visual feedback when revealed seed doesn't match hash
+- **Server Seed Reveal - Missing Original Hash**: Show error message if trying to verify without a server seed hash configured
 
 ## Design Direction
 
@@ -135,11 +145,12 @@ Animations should emphasize **precision and technical feedback** rather than pla
   - **Platform Toggle**: Active (emerald-500), Inactive (slate-600)
 
 - **Icon Selection**: 
-  - **Check** (verification success states)
-  - **Warning** (validation errors)
+  - **Check/ShieldCheck** (verification success states)
+  - **Warning/ShieldSlash** (validation errors, hash mismatch)
   - **GridFour** (Mines tab)
   - **NumberSquareEight** (Keno tab)
   - **TrendUp** (Crash tab)
+  - **Eye** (Server seed reveal)
   - **Database** (saved verifications)
 
 - **Spacing**: 

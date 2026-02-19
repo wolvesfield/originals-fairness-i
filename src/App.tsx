@@ -7,6 +7,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { GridFour, NumberSquareEight, TrendUp } from '@phosphor-icons/react'
 import type { Platform, GameType, VerificationResult } from '@/lib/types'
 import ConfigPanel from '@/components/ConfigPanel'
+import ServerSeedReveal from '@/components/ServerSeedReveal'
 import MinesGame from '@/components/MinesGame'
 import KenoGame from '@/components/KenoGame'
 import CrashGame from '@/components/CrashGame'
@@ -87,6 +88,8 @@ function App() {
           mineCount={mineCount}
           setMineCount={setMineCount}
         />
+
+        <ServerSeedReveal serverSeedHash={serverSeedHash} />
 
         <Card className="p-6">
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GameType)}>
