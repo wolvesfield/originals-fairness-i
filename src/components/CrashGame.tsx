@@ -20,8 +20,8 @@ export default function CrashGame({
   const [multiplier, setMultiplier] = useState(1.0)
   const [crashed, setCrashed] = useState(false)
   const [crashPoint, setCrashPoint] = useState(0)
-  const animationRef = useRef<number | undefined>()
-  const startTimeRef = useRef<number | undefined>()
+  const animationRef = useRef<number | undefined>(undefined)
+  const startTimeRef = useRef<number | undefined>(undefined)
   const pathRef = useRef<SVGPathElement>(null)
 
   useEffect(() => {
