@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Check } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { calculateCrashPoint as computeCrashPoint } from '@/utils/fairnessEngine'
 
 interface CrashGameProps {
   serverSeedHash: string
@@ -33,18 +34,7 @@ export default function CrashGame({
   }, [])
 
   const calculateCrashPoint = () => {
-    let seed = `${serverSeedHash}${clientSeed}${nonce}`
-    let hash = 0
-    
-    for (let i = 0; i < seed.length; i++) {
-      hash = ((hash << 5) - hash) + seed.charCodeAt(i)
-      hash = hash & hash
-    }
-    
-    const normalized = Math.abs(hash) / 2147483647
-    const crash = Math.max(1.01, Math.min(100, 1 + normalized * 10))
-    
-    return parseFloat(crash.toFixed(2))
+    return computeCrashPoint(serverSeedHash, clientSeed, nonce)
   }
 
   const animate = (timestamp: number) => {

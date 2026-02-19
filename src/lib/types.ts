@@ -31,3 +31,13 @@ export interface BatchVerificationResult {
     crashPoint?: number
   }
 }
+
+export interface VerifiedSeed {
+  id: string
+  server_seed: string
+  client_seed: string
+  nonce: number
+  game_type: string
+  result_data: string
+  created_at: string
+}
