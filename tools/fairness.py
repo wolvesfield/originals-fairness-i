@@ -18,6 +18,43 @@ def generate_game_hash(server_seed: str, client_seed: str, nonce: int, round: in
     return digest.hexdigest()
 
 
+def decode_crash(server_seed: str, client_seed: str, nonce: int, round: int = 0) -> float:
+    game_hash = generate_game_hash(server_seed, client_seed, nonce, round)
+    h = int(game_hash[:13], 16)
+    if h % 33 == 0:
+        return 1.0
+    denom = (2**52) - h
+    if denom <= 0:
+        return 1.0
+    return (2**52 / denom) * 0.99
+
+
+def decode_mines(server_seed: str, client_seed: str, nonce: int, mine_count: int, round: int = 0) -> List[int]:
+    game_hash = generate_game_hash(server_seed, client_seed, nonce, round)
+    mines: List[int] = []
+    for i in range(0, len(game_hash), 2):
+        if len(mines) >= mine_count:
+            break
+        byte_val = int(game_hash[i:i + 2], 16)
+        position = byte_val
+        if position < 25 and position not in mines:
+            mines.append(position)
+    return mines
+
+
+def decode_keno(server_seed: str, client_seed: str, nonce: int, round: int = 0) -> List[int]:
+    game_hash = generate_game_hash(server_seed, client_seed, nonce, round)
+    bytes_seq = [int(game_hash[i:i + 2], 16) for i in range(0, len(game_hash), 2)]
+    numbers = list(range(1, 81))
+    byte_index = 0
+    for i in range(len(numbers) - 1, 0, -1):
+        byte_val = bytes_seq[byte_index % len(bytes_seq)]
+        swap_idx = byte_val % (i + 1)
+        numbers[i], numbers[swap_idx] = numbers[swap_idx], numbers[i]
+        byte_index += 1
+    return numbers[:20]
+
+
 class StakeIngestionClient:
     def __init__(self, token: Optional[str] = None, base_url: str = "https://api.stake.com/api") -> None:
         self.base_url = base_url.rstrip("/")
