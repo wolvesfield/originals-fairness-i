@@ -6,6 +6,8 @@ import sqlite3
 from typing import Any, Dict, Iterable, List, Optional
 
 import requests
+import concurrent.futures
+import math
 
 
 def generate_game_hash(server_seed: str, client_seed: str, nonce: int, round: int = 0) -> str:
@@ -53,6 +55,66 @@ def decode_keno(server_seed: str, client_seed: str, nonce: int, round: int = 0) 
         numbers[i], numbers[swap_idx] = numbers[swap_idx], numbers[i]
         byte_index += 1
     return numbers[:20]
+
+
+def simulate_seed_impact(game_type: str, server_seed: str, target_outcome: Any, nonce: int = 0, round: int = 0) -> str:
+    distribution: Dict[str, int] = {}
+    matches: List[str] = []
+
+    for i in range(1000):
+        client_seed = f"seed-{i}"
+        if game_type == "crash":
+            outcome = decode_crash(server_seed, client_seed, nonce, round)
+            key = f"{outcome:.2f}"
+            if math.isclose(outcome, target_outcome, rel_tol=1e-9, abs_tol=1e-9):
+                matches.append(client_seed)
+        elif game_type == "mines":
+            mine_count = len(target_outcome) if isinstance(target_outcome, list) else 3
+            outcome = decode_mines(server_seed, client_seed, nonce, mine_count, round)
+            key = ",".join(map(str, outcome))
+            if isinstance(target_outcome, list) and sorted(outcome) == sorted(target_outcome):
+                matches.append(client_seed)
+        else:
+            outcome = decode_keno(server_seed, client_seed, nonce, round)
+            key = ",".join(map(str, outcome))
+            if isinstance(target_outcome, list) and outcome == target_outcome:
+                matches.append(client_seed)
+
+        distribution[key] = distribution.get(key, 0) + 1
+
+    result = {
+        "game_type": game_type,
+        "total_seeds": 1000,
+        "distribution": distribution,
+        "matches": matches,
+    }
+    return json.dumps(result)
+
+
+def hash_cracking(target_hash: str) -> Dict[str, Any]:
+    def _search() -> Dict[str, Any]:
+        prefix = target_hash[:8]
+        for i in range(1_000_000):
+            candidate = f"candidate-{i}".encode("utf-8")
+            attempt = hashlib.sha256(candidate).hexdigest()
+            if attempt.startswith(prefix):
+                return {"status": "found", "value": candidate.decode("utf-8"), "hash": attempt}
+        return {"status": "not_found"}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_search)
+        try:
+            return future.result(timeout=15)
+        except concurrent.futures.TimeoutError:
+            return {"status": "timeout"}
+
+
+def verify_merkle_proof(leaf: str, proof_array: List[str], root_hash: str) -> bool:
+    current = hashlib.sha256(leaf.encode("utf-8")).hexdigest()
+    for sibling in proof_array:
+        pair = "".join(sorted([current, sibling]))
+        current = hashlib.sha256(pair.encode("utf-8")).hexdigest()
+    return current == root_hash
 
 
 class StakeIngestionClient:

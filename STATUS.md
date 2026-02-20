@@ -4,7 +4,7 @@
 - [ ] Task 2 – Integrity Verification Logic (in progress: HMAC_SHA256 helpers and stochastic decoders)
 - [ ] Task 5 – Entropy Auditor (pending metrics JSON)
 - [ ] Task 3 – Authenticated State Ingestion (Stake API driver added; awaiting first run)
-- [ ] Task 4 – Contract Root/Preimage Solver (pending)
+- [ ] Task 4 – Contract Root/Preimage Solver (in progress: preimage search + Merkle helper)
 - [ ] Task 6 – Workflow Automation & Alerting (pending)
 - [ ] Task 8 – Seed Influence Analysis (in progress: decoders ready, analysis pending)
 
