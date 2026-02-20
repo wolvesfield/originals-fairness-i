@@ -3,11 +3,13 @@ import hmac
 import json
 import os
 import sqlite3
+import asyncio
 from typing import Any, Dict, Iterable, List, Optional
 
 import requests
 import concurrent.futures
 import math
+import socketio
 
 
 def generate_game_hash(server_seed: str, client_seed: str, nonce: int, round: int = 0) -> str:
@@ -88,7 +90,11 @@ def simulate_seed_impact(game_type: str, server_seed: str, target_outcome: Any, 
         "distribution": distribution,
         "matches": matches,
     }
-    return json.dumps(result)
+    payload_str = json.dumps(result)
+    _persist_latest_audit_state(payload_str)
+    _maybe_emit_state(payload_str)
+    _maybe_trigger_anomaly_alert(result)
+    return payload_str
 
 
 def hash_cracking(target_hash: str) -> Dict[str, Any]:
@@ -115,6 +121,69 @@ def verify_merkle_proof(leaf: str, proof_array: List[str], root_hash: str) -> bo
         pair = "".join(sorted([current, sibling]))
         current = hashlib.sha256(pair.encode("utf-8")).hexdigest()
     return current == root_hash
+
+
+def _persist_latest_audit_state(payload: str, db_path: str = "baseline.db") -> None:
+    try:
+        conn = init_baseline_db(db_path)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO Meta(key, value) VALUES('latest_audit_state', ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP
+            """,
+            (payload,),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        return
+
+
+def _maybe_emit_state(payload: str) -> None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(sio.emit("state_update", payload))
+
+
+async def fire_discord_alert(payload: Dict[str, Any]) -> None:
+    webhook = os.getenv("DISCORD_WEBHOOK_URL")
+    if not webhook:
+        return
+    try:
+        requests.post(webhook, json={"content": json.dumps(payload)})
+    except Exception:
+        return
+
+
+def _maybe_trigger_anomaly_alert(result: Dict[str, Any]) -> None:
+    distribution = result.get("distribution", {})
+    total = result.get("total_seeds", 0) or 0
+    if not distribution or total <= 0:
+        return
+    expected = 1 / len(distribution)
+    for key, count in distribution.items():
+        observed = count / total
+        if abs(observed - expected) > expected * 0.15:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(
+                    fire_discord_alert(
+                        {
+                            "severity": "CRITICAL_ANOMALY",
+                            "game_type": result.get("game_type"),
+                            "distribution_key": key,
+                            "observed": observed,
+                            "expected": expected,
+                            "matches": result.get("matches", []),
+                        }
+                    )
+                )
+            except RuntimeError:
+                return
+            break
 
 
 class StakeIngestionClient:
@@ -246,3 +315,6 @@ def ingest_and_baseline(db_path: str = "baseline.db", limit: int = 100) -> str:
     conn = init_baseline_db(db_path)
     bets = client.fetch_bet_history(limit=limit)
     return record_baseline(conn, bets)
+
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+socket_app = socketio.ASGIApp(sio)

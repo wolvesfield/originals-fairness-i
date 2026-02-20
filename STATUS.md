@@ -5,7 +5,8 @@
 - [ ] Task 5 – Entropy Auditor (pending metrics JSON)
 - [ ] Task 3 – Authenticated State Ingestion (Stake API driver added; awaiting first run)
 - [ ] Task 4 – Contract Root/Preimage Solver (in progress: preimage search + Merkle helper)
-- [ ] Task 6 – Workflow Automation & Alerting (pending)
+- [ ] Task 6 – Workflow Automation & Alerting (in progress: alert hook wiring)
 - [ ] Task 8 – Seed Influence Analysis (in progress: decoders ready, analysis pending)
+- [ ] Task 7 – Spark KV Persistence (in progress: audit state persistence + telemetry bridge)
 
 Phase 0 Unblocked: Live specs provided (Stake/Roobet HMAC_SHA256, Stake API token ingestion, SQLite baseline schema). First ingestion will set the gold baseline checksum.
