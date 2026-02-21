@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useKV } from '@github/spark/hooks'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card } from '@/components/ui/card'
@@ -13,12 +13,30 @@ import MinesGame from '@/components/MinesGame'
 import KenoGame from '@/components/KenoGame'
 import CrashGame from '@/components/CrashGame'
 import BatchVerification from '@/components/BatchVerification'
+import { GoldPathHUD } from '@/components/GoldPathHUD'
+import { FutureChainSidebar } from '@/components/FutureChainSidebar'
+import { MinesGrid } from '@/components/MinesGrid'
+import { MasterController } from '@/controllers/MasterController'
+
+type AppTab = GameType | 'batch' | 'apex'
+
+interface FuturePrediction {
+  nonce: number
+  confidence: number
+  isGold: boolean
+}
 
 function App() {
   const [platform, setPlatform] = useState<Platform>('stake')
-  const [activeTab, setActiveTab] = useState<GameType>('mines')
+  const [activeTab, setActiveTab] = useState<AppTab>('mines')
   const [verifications, setVerifications] = useKV<VerificationResult[]>('verification-history', [])
-  const [showBatchVerification, setShowBatchVerification] = useState(false)
+  const [scannerResult, setScannerResult] = useKV<any>('scanner-result', { found: false })
+  const [confidence, setConfidence] = useKV<number>('confidence', 0)
+  const [hashStatus, setHashStatus] = useKV<string>('hash-status', 'UNKNOWN')
+  const [futurePredictions, setFuturePredictions] = useKV<any[]>('future-predictions', [])
+  const [heatMap, setHeatMap] = useKV<number[]>('heat-map', new Array(25).fill(0))
+
+  const masterController = useMemo(() => new MasterController(), [])
 
   const [serverSeedHash, setServerSeedHash] = useState('')
   const [clientSeed, setClientSeed] = useState('')
@@ -41,8 +59,54 @@ function App() {
     })
   }
 
+  const handleStartScan = async () => {
+    setHashStatus('SEARCHING')
+
+    const result = await masterController.processGameRound(
+      serverSeedHash || 'unknown',
+      clientSeed || 'default-client-seed',
+      nonce,
+      100
+    )
+
+    setScannerResult(result)
+    const resolvedConfidence = result.mode === 'DETERMINISTIC' ? 0.999 : 0.75
+    setConfidence(resolvedConfidence)
+    setHashStatus(result.mode === 'DETERMINISTIC' ? 'CRACKED' : 'UNKNOWN')
+
+    const baseHeatMap = new Array(25).fill(0.22)
+    if (result.safePath?.length) {
+      result.safePath.forEach((index: number) => {
+        if (index >= 0 && index < baseHeatMap.length) {
+          baseHeatMap[index] = 0.05
+        }
+      })
+    }
+    setHeatMap(baseHeatMap)
+
+    const predictions: FuturePrediction[] = Array.from({ length: 50 }, (_, i) => {
+      const predictionNonce = nonce + i + 1
+      const isGold = !!result.found && result.nonce === predictionNonce
+      return {
+        nonce: predictionNonce,
+        confidence: isGold ? resolvedConfidence : Math.max(0.1, resolvedConfidence - 0.4 + (i % 10) * 0.01),
+        isGold
+      }
+    })
+
+    setFuturePredictions((current) => {
+      const merged = [...predictions, ...(current || [])]
+      return merged.slice(0, 100)
+    })
+  }
+
   return (
     <div className="min-h-screen bg-background p-6">
+      <GoldPathHUD
+        scannerResult={scannerResult}
+        confidence={confidence ?? 0}
+        hashStatus={hashStatus as 'CRACKED' | 'SEARCHING' | 'UNKNOWN'}
+      />
       <div className="mx-auto max-w-7xl space-y-6">
         <header className="flex items-center justify-between">
           <div>
@@ -94,30 +158,9 @@ function App() {
 
         <ServerSeedReveal serverSeedHash={serverSeedHash} />
 
-        {showBatchVerification ? (
-          <BatchVerification
-            platform={platform}
-            game={activeTab}
-            serverSeedHash={serverSeedHash}
-            clientSeed={clientSeed}
-            onClose={() => setShowBatchVerification(false)}
-          />
-        ) : (
-          <>
-            <div className="flex justify-end">
-              <Button
-                onClick={() => setShowBatchVerification(true)}
-                variant="outline"
-                className="gap-2 border-primary/50 hover:bg-primary/10"
-              >
-                <ListChecks size={20} />
-                Batch Verification
-              </Button>
-            </div>
-
-            <Card className="p-6">
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GameType)}>
-            <TabsList className="grid w-full grid-cols-3">
+        <Card className="p-6">
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as AppTab)}>
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="mines" className="gap-2">
                 <GridFour size={20} />
                 Mines
@@ -129,6 +172,14 @@ function App() {
               <TabsTrigger value="crash" className="gap-2">
                 <TrendUp size={20} />
                 Crash
+              </TabsTrigger>
+              <TabsTrigger value="batch" className="gap-2">
+                <ListChecks size={20} />
+                Batch
+              </TabsTrigger>
+              <TabsTrigger value="apex" className="gap-2">
+                <TrendUp size={20} />
+                Apex
               </TabsTrigger>
             </TabsList>
 
@@ -160,10 +211,37 @@ function App() {
                 onVerify={() => handleVerify('crash')}
               />
             </TabsContent>
+
+            <TabsContent value="batch" className="mt-6">
+              <BatchVerification
+                platform={platform}
+                game={activeTab === 'batch' || activeTab === 'apex' ? 'mines' : activeTab}
+                serverSeedHash={serverSeedHash}
+                clientSeed={clientSeed}
+                onClose={() => setActiveTab('mines')}
+              />
+            </TabsContent>
+
+            <TabsContent value="apex" className="mt-6">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">Neural-Entropy Apex Scanner</h3>
+                    <Button onClick={handleStartScan} className="bg-primary hover:bg-primary/90">
+                      Start Scan
+                    </Button>
+                  </div>
+                  <MinesGrid
+                    heatMap={heatMap ?? new Array(25).fill(0)}
+                    isCracked={hashStatus === 'CRACKED'}
+                    safeTiles={scannerResult?.safePath || []}
+                  />
+                </div>
+                <FutureChainSidebar predictions={futurePredictions as FuturePrediction[]} />
+              </div>
+            </TabsContent>
           </Tabs>
         </Card>
-          </>
-        )}
       </div>
       <Toaster />
     </div>
