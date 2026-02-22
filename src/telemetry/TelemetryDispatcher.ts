@@ -1,6 +1,9 @@
 /**
- * Real-Time Telemetry Dispatcher — Email Alert System
- * Sends high-confidence stochastic convergence alerts via email.
+ * Real-Time Telemetry Dispatcher — Multi-Channel Alert System
+ * Sends high-confidence stochastic convergence alerts via:
+ *   - Discord webhook
+ *   - SMTP email endpoint
+ *   - Console fallback
  * Only triggers when confidence ≥ 92%.
  */
 
@@ -15,50 +18,84 @@ export class TelemetryDispatcher {
   private smtpEndpoint: string;
   private recipientEmail: string;
   private senderEmail: string;
+  private discordWebhookUrl: string;
   private minConfidence = 0.92;
 
   constructor(
     smtpEndpoint: string = process.env.SMTP_ENDPOINT || '',
     recipientEmail: string = process.env.ALERT_RECIPIENT_EMAIL || '',
-    senderEmail: string = process.env.ALERT_SENDER_EMAIL || 'neural-entropy@localhost'
+    senderEmail: string = process.env.ALERT_SENDER_EMAIL || 'fairness-suite@localhost',
+    discordWebhookUrl: string = process.env.DISCORD_WEBHOOK_URL || ''
   ) {
     this.smtpEndpoint = smtpEndpoint;
     this.recipientEmail = recipientEmail;
     this.senderEmail = senderEmail;
+    this.discordWebhookUrl = discordWebhookUrl;
   }
 
   /**
-   * Dispatches an email alert when confidence exceeds threshold.
+   * Dispatches alerts to all configured channels when confidence exceeds threshold.
    */
   async dispatchSignal(signal: StochasticSignal): Promise<void> {
     if (signal.confidence < this.minConfidence) return;
 
     const sigma = signal.volatilitySigma ?? 0;
     const status = sigma < 1.2 ? '🟢 STABLE' : '🟡 ELEVATED VARIANCE';
+    const confidencePct = (signal.confidence * 100).toFixed(2);
+    const timestamp = new Date().toISOString();
 
-    const subject = `🚨 High-Confidence Stochastic Convergence — ${(signal.confidence * 100).toFixed(2)}%`;
+    const subject = `🚨 High-Confidence Convergence — ${confidencePct}%`;
 
-    const body = [
+    const bodyLines = [
       '═══════════════════════════════════════════',
-      '  NEURAL-ENTROPY STATISTICAL INTEGRITY SUITE',
+      '  PROVABLY FAIR STATISTICAL INTEGRITY SUITE',
       '  High-Confidence Event Notification',
       '═══════════════════════════════════════════',
       '',
-      `  Confidence Score:    ${(signal.confidence * 100).toFixed(2)}%`,
+      `  Confidence Score:    ${confidencePct}%`,
       `  Risk-Adjusted Alloc: ${signal.allocation.toFixed(4)} Units`,
       `  Target Zone:         ${signal.targetZone}`,
       `  Current Variance σ:  ${sigma.toFixed(3)}`,
-      `  Market Status:       ${status}`,
+      `  Status:              ${status}`,
       '',
-      `  Timestamp:           ${new Date().toISOString()}`,
-      '',
-      '───────────────────────────────────────────',
-      '  Post-Quantum Integrity Verified',
+      `  Timestamp:           ${timestamp}`,
       '═══════════════════════════════════════════',
-    ].join('\n');
+    ];
+    const body = bodyLines.join('\n');
 
-    try {
-      if (this.smtpEndpoint) {
+    const results: string[] = [];
+
+    // Channel 1: Discord webhook
+    if (this.discordWebhookUrl) {
+      try {
+        await fetch(this.discordWebhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            embeds: [{
+              title: subject,
+              description: [
+                `**Confidence:** ${confidencePct}%`,
+                `**Allocation:** ${signal.allocation.toFixed(4)} units`,
+                `**Target Zone:** ${signal.targetZone}`,
+                `**Variance σ:** ${sigma.toFixed(3)}`,
+                `**Status:** ${status}`,
+              ].join('\n'),
+              color: signal.confidence >= 0.95 ? 0x00ff00 : 0xffaa00,
+              timestamp,
+            }]
+          }),
+        });
+        results.push('Discord ✅');
+      } catch (error) {
+        console.error('[Telemetry] Discord webhook error:', error);
+        results.push('Discord ❌');
+      }
+    }
+
+    // Channel 2: SMTP email
+    if (this.smtpEndpoint) {
+      try {
         await fetch(this.smtpEndpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -69,13 +106,19 @@ export class TelemetryDispatcher {
             text: body,
           }),
         });
-        console.log(`[Telemetry] ✉️ Email alert dispatched to ${this.recipientEmail}`);
-      } else {
-        // Fallback: log to console when no SMTP configured
-        console.log(`[Telemetry] ✉️ ALERT (no SMTP configured):\n${subject}\n${body}`);
+        results.push('Email ✅');
+      } catch (error) {
+        console.error('[Telemetry] Email dispatch error:', error);
+        results.push('Email ❌');
       }
-    } catch (error) {
-      console.error('[Telemetry] Email dispatch error:', error);
+    }
+
+    // Fallback: console log when no channels configured
+    if (!this.discordWebhookUrl && !this.smtpEndpoint) {
+      console.log(`[Telemetry] ALERT (no channels configured):\n${subject}\n${body}`);
+      results.push('Console ✅');
+    } else {
+      console.log(`[Telemetry] Dispatched: ${results.join(', ')}`);
     }
   }
 }

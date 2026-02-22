@@ -17,6 +17,7 @@ import { GoldPathHUD } from '@/components/GoldPathHUD'
 import { FutureChainSidebar } from '@/components/FutureChainSidebar'
 import { MinesGrid } from '@/components/MinesGrid'
 import { MasterController } from '@/controllers/MasterController'
+import { generateMinePositions } from '@/utils/fairnessEngine'
 
 type AppTab = GameType | 'batch' | 'apex'
 
@@ -39,9 +40,16 @@ function App() {
   const masterController = useMemo(() => new MasterController(), [])
 
   const [serverSeedHash, setServerSeedHash] = useState('')
+  const [revealedServerSeed, setRevealedServerSeed] = useState<string | null>(null)
   const [clientSeed, setClientSeed] = useState('')
   const [nonce, setNonce] = useState(0)
   const [mineCount, setMineCount] = useState(3)
+
+  const totalCells = platform === 'roobet' ? 64 : 25
+  const gridSize = platform === 'roobet' ? 8 : 5
+  const targetTiles = platform === 'roobet'
+    ? Array.from({ length: 16 }, (_, i) => i)
+    : [0, 1, 2, 3, 4]
 
   const handleVerify = (game: GameType) => {
     const result: VerificationResult = {
@@ -52,7 +60,7 @@ function App() {
       nonce,
       timestamp: Date.now()
     }
-    
+
     setVerifications((current) => {
       const updated = current ? [result, ...current] : [result]
       return updated.slice(0, 50)
@@ -66,31 +74,53 @@ function App() {
       serverSeedHash || 'unknown',
       clientSeed || 'default-client-seed',
       nonce,
-      100
+      100,
+      targetTiles,
+      mineCount,
+      revealedServerSeed ?? undefined,
+      totalCells
     )
 
     setScannerResult(result)
-    const resolvedConfidence = result.mode === 'DETERMINISTIC' ? 0.999 : 0.75
-    setConfidence(resolvedConfidence)
+    setConfidence(result.confidence)
     setHashStatus(result.mode === 'DETERMINISTIC' ? 'CRACKED' : 'UNKNOWN')
 
-    const baseHeatMap = new Array(25).fill(0.22)
-    if (result.safePath?.length) {
-      result.safePath.forEach((index: number) => {
-        if (index >= 0 && index < baseHeatMap.length) {
-          baseHeatMap[index] = 0.05
-        }
-      })
+    if (result.heatMap?.length === totalCells) {
+      setHeatMap(result.heatMap)
+    } else {
+      const baseHeatMap = new Array(totalCells).fill(0.22)
+      if (result.safePath?.length) {
+        result.safePath.forEach((index: number) => {
+          if (index >= 0 && index < baseHeatMap.length) {
+            baseHeatMap[index] = 0.05
+          }
+        })
+      }
+      setHeatMap(baseHeatMap)
     }
-    setHeatMap(baseHeatMap)
 
     const predictions: FuturePrediction[] = Array.from({ length: 50 }, (_, i) => {
       const predictionNonce = nonce + i + 1
-      const isGold = !!result.found && result.nonce === predictionNonce
+      if (result.crackedSeed) {
+        const mines = generateMinePositions(
+          result.crackedSeed,
+          clientSeed || 'default-client-seed',
+          predictionNonce,
+          mineCount,
+          totalCells
+        )
+        const isGold = !targetTiles.some(tile => mines.includes(tile))
+        return {
+          nonce: predictionNonce,
+          confidence: isGold ? 0.999 : 0,
+          isGold
+        }
+      }
+
       return {
         nonce: predictionNonce,
-        confidence: isGold ? resolvedConfidence : Math.max(0.1, resolvedConfidence - 0.4 + (i % 10) * 0.01),
-        isGold
+        confidence: 0,
+        isGold: false
       }
     })
 
@@ -113,7 +143,7 @@ function App() {
             <h1 className="text-3xl font-bold tracking-tight">Originals Fairness Infrastructure</h1>
             <p className="text-sm text-muted-foreground mt-1">Cryptographic verification for provably fair gaming</p>
           </div>
-          
+
           <div className="flex gap-2">
             <button
               onClick={() => setPlatform('stake')}
@@ -156,7 +186,10 @@ function App() {
           setMineCount={setMineCount}
         />
 
-        <ServerSeedReveal serverSeedHash={serverSeedHash} />
+        <ServerSeedReveal
+          serverSeedHash={serverSeedHash}
+          onVerifiedSeed={setRevealedServerSeed}
+        />
 
         <Card className="p-6">
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as AppTab)}>
@@ -187,6 +220,7 @@ function App() {
               <MinesGame
                 platform={platform}
                 serverSeedHash={serverSeedHash}
+                revealedServerSeed={revealedServerSeed}
                 clientSeed={clientSeed}
                 nonce={nonce}
                 mineCount={mineCount}
@@ -226,15 +260,17 @@ function App() {
               <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">Neural-Entropy Apex Scanner</h3>
+                    <h3 className="text-lg font-semibold">Provably Fair Apex Scanner</h3>
                     <Button onClick={handleStartScan} className="bg-primary hover:bg-primary/90">
                       Start Scan
                     </Button>
                   </div>
                   <MinesGrid
-                    heatMap={heatMap ?? new Array(25).fill(0)}
+                    heatMap={heatMap ?? new Array(totalCells).fill(0)}
                     isCracked={hashStatus === 'CRACKED'}
                     safeTiles={scannerResult?.safePath || []}
+                    gridSize={gridSize}
+                    mineTiles={scannerResult?.nonceScanResults?.[0]?.mines || []}
                   />
                 </div>
                 <FutureChainSidebar predictions={futurePredictions as FuturePrediction[]} />

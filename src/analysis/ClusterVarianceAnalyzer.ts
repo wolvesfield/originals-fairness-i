@@ -44,3 +44,30 @@ export class ClusterVarianceAnalyzer {
     return mines;
   }
 }
+
+// CLI entry point for standalone testing
+if (typeof process !== 'undefined' && process.argv[1]?.includes('ClusterVarianceAnalyzer')) {
+  console.log('═══ CLUSTER VARIANCE ANALYZER — MONTE CARLO DEMO ═══\n');
+  const cva = new ClusterVarianceAnalyzer();
+  const seed = process.argv[2] || 'demo-seed:42';
+  const gridSize = 25;
+  const mineCount = 3;
+
+  console.log(`Seed basis: "${seed}"`);
+  console.log(`Grid: ${gridSize} cells, ${mineCount} mines`);
+  console.log(`Running 50,000 Monte Carlo iterations...\n`);
+
+  const start = Date.now();
+  const heatMap = cva.generateDensityMap(gridSize, mineCount, seed);
+  const elapsed = Date.now() - start;
+
+  console.log('Heat Map (mine probability per cell):');
+  for (let row = 0; row < 5; row++) {
+    const cells = heatMap.slice(row * 5, row * 5 + 5).map(p => p.toFixed(3).padStart(6));
+    console.log(`  Row ${row}: [${cells.join(', ')}]`);
+  }
+
+  const deadZones = cva.identifyDeadZones(heatMap);
+  console.log(`\nDead Zones (<15% probability): [${deadZones.join(', ')}]`);
+  console.log(`Completed in ${elapsed}ms`);
+}

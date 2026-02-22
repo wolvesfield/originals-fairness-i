@@ -10,9 +10,10 @@ import { sha256, verifyServerSeedHash } from '@/lib/crypto'
 
 interface ServerSeedRevealProps {
   serverSeedHash: string
+  onVerifiedSeed?: (seed: string | null) => void
 }
 
-export default function ServerSeedReveal({ serverSeedHash }: ServerSeedRevealProps) {
+export default function ServerSeedReveal({ serverSeedHash, onVerifiedSeed }: ServerSeedRevealProps) {
   const [revealedSeed, setRevealedSeed] = useState('')
   const [verificationStatus, setVerificationStatus] = useState<'idle' | 'valid' | 'invalid'>('idle')
   const [computedHash, setComputedHash] = useState('')
@@ -30,20 +31,23 @@ export default function ServerSeedReveal({ serverSeedHash }: ServerSeedRevealPro
     }
 
     setIsVerifying(true)
-    
+
     try {
       const hash = await sha256(revealedSeed)
       setComputedHash(hash)
-      
+
       const isValid = await verifyServerSeedHash(revealedSeed, serverSeedHash)
       setVerificationStatus(isValid ? 'valid' : 'invalid')
-      
+
       if (isValid) {
+        onVerifiedSeed?.(revealedSeed)
         toast.success('Server seed verified successfully!')
       } else {
+        onVerifiedSeed?.(null)
         toast.error('Hash verification failed - seed does not match')
       }
-    } catch (error) {
+    } catch {
+      onVerifiedSeed?.(null)
       toast.error('Verification error occurred')
       setVerificationStatus('invalid')
     } finally {
@@ -55,6 +59,7 @@ export default function ServerSeedReveal({ serverSeedHash }: ServerSeedRevealPro
     setRevealedSeed('')
     setVerificationStatus('idle')
     setComputedHash('')
+    onVerifiedSeed?.(null)
   }
 
   return (
@@ -65,7 +70,7 @@ export default function ServerSeedReveal({ serverSeedHash }: ServerSeedRevealPro
           Server Seed Reveal
         </h2>
         {verificationStatus !== 'idle' && (
-          <Badge 
+          <Badge
             variant={verificationStatus === 'valid' ? 'default' : 'destructive'}
             className={verificationStatus === 'valid' ? 'bg-primary' : ''}
           >
@@ -95,12 +100,13 @@ export default function ServerSeedReveal({ serverSeedHash }: ServerSeedRevealPro
               setRevealedSeed(e.target.value)
               setVerificationStatus('idle')
               setComputedHash('')
+              onVerifiedSeed?.(null)
             }}
             placeholder="Enter the revealed server seed..."
             className="font-mono text-sm"
           />
           <p className="text-xs text-muted-foreground">
-            Enter the unhashed server seed to verify it matches the original hash
+            Exact game outcomes are only derived after this seed is verified against the hash.
           </p>
         </div>
 
@@ -141,20 +147,17 @@ export default function ServerSeedReveal({ serverSeedHash }: ServerSeedRevealPro
         )}
 
         <div className="flex gap-2">
-          <Button 
-            onClick={handleVerify} 
+          <Button
+            onClick={handleVerify}
             disabled={isVerifying || !revealedSeed.trim()}
             className="bg-primary hover:bg-primary/90"
           >
             <ShieldCheck size={20} className="mr-2" />
             {isVerifying ? 'Verifying...' : 'Verify Hash'}
           </Button>
-          
+
           {verificationStatus !== 'idle' && (
-            <Button 
-              onClick={handleReset}
-              variant="outline"
-            >
+            <Button onClick={handleReset} variant="outline">
               Reset
             </Button>
           )}
