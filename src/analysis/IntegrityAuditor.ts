@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import CryptoJS from 'crypto-js';
 
 /**
  * Multi-Layer Hash Resolution Engine
@@ -15,6 +15,7 @@ export class IntegrityAuditor {
   private hashesBaseUrl = 'https://hashes.com/api/search';
   private nitrxgenBaseUrl = 'https://www.nitrxgen.net/md5db/';
   private localCache: Map<string, string> = new Map();
+  private readonly isBrowser = typeof window !== 'undefined';
 
   constructor() {
     this.hashesApiKey = process.env.HASHES_API_KEY || '';
@@ -39,6 +40,10 @@ export class IntegrityAuditor {
       this.localCache.set(normalizedHash, dbMatch);
       console.log(`[IntegrityAuditor] Layer 2 HIT (SQLite): ${normalizedHash.slice(0, 16)}...`);
       return dbMatch;
+    }
+
+    if (this.isBrowser) {
+      return null;
     }
 
     // Layer 3: Hashes.com API (paid, high coverage)
@@ -116,6 +121,10 @@ export class IntegrityAuditor {
    * Returns plaintext directly in response body if found, empty string if not.
    */
   private async queryNitrxgen(hash: string): Promise<string | null> {
+    if (!/^[a-f0-9]{32}$/.test(hash)) {
+      return null;
+    }
+
     try {
       const response = await fetch(
         `${this.nitrxgenBaseUrl}${hash}`,
@@ -143,7 +152,7 @@ export class IntegrityAuditor {
    * Verify that a plaintext hashes to the expected SHA-256 hash.
    */
   verifyHash(plaintext: string, expectedHash: string): boolean {
-    const computed = crypto.createHash('sha256').update(plaintext).digest('hex');
+    const computed = CryptoJS.SHA256(plaintext).toString(CryptoJS.enc.Hex);
     return computed === expectedHash.toLowerCase();
   }
 
@@ -172,7 +181,7 @@ if (typeof process !== 'undefined' && process.argv[1]?.includes('IntegrityAudito
     const auditor = new IntegrityAuditor();
 
     // Demo: SHA-256 of 'test'
-    const testHash = crypto.createHash('sha256').update('test').digest('hex');
+    const testHash = CryptoJS.SHA256('test').toString(CryptoJS.enc.Hex);
     console.log(`Test hash (SHA-256 of "test"): ${testHash}`);
 
     // Register it manually to demonstrate caching
