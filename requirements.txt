@@ -1,2 +1,4 @@
 requests>=2.31.0
 python-socketio>=5.11.1
+scipy
+numpy

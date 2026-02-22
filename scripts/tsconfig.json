@@ -6,6 +6,10 @@
     "esModuleInterop": true,
     "strict": true,
     "strictNullChecks": true,
+    "types": [
+      "node",
+      "better-sqlite3"
+    ],
     "skipLibCheck": true,
     "noEmit": true,
     "resolveJsonModule": true

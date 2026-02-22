@@ -1,0 +1,31 @@
+name: 24/7 Neural-Entropy Monitoring
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  entropy-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Run entropy baseline
+        run: npm run baseline
+      - name: Execute entropy audit
+        run: npm run audit
+      - name: Email alert on anomalies
+        run: npm run alert-dispatch
+        env:
+          SMTP_ENDPOINT: ${{ secrets.SMTP_ENDPOINT }}
+          ALERT_RECIPIENT_EMAIL: ${{ secrets.ALERT_RECIPIENT_EMAIL }}
+          HASHES_API_KEY: ${{ secrets.HASHES_API_KEY }}

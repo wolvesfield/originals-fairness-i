@@ -34,9 +34,10 @@ export default function ConfigPanel({
             type="text"
             value={serverSeedHash}
             onChange={(e) => setServerSeedHash(e.target.value)}
-            placeholder="Enter server seed hash..."
+            placeholder="e.g. 7844d07c94a99c29e71a028434a24b87..."
             className="font-mono text-sm"
           />
+          <p className="text-xs text-muted-foreground">SHA-256 hash from your active game session</p>
         </div>
         
         <div className="space-y-2">
@@ -46,7 +47,7 @@ export default function ConfigPanel({
             type="text"
             value={clientSeed}
             onChange={(e) => setClientSeed(e.target.value)}
-            placeholder="Enter client seed..."
+            placeholder="e.g. lRB-is3c4H"
             className="font-mono text-sm"
           />
         </div>
@@ -69,9 +70,10 @@ export default function ConfigPanel({
             id="mine-count"
             type="number"
             value={mineCount}
-            onChange={(e) => setMineCount(parseInt(e.target.value) || 0)}
+            onChange={(e) => setMineCount(parseInt(e.target.value) || 3)}
             placeholder="3"
             min={1}
+            max={24}
             className="font-mono text-sm"
           />
         </div>
