@@ -79,8 +79,8 @@ export class IntegrityAuditor {
   private async checkLocalDatabase(hash: string): Promise<string | null> {
     try {
       // Dynamic import to avoid breaking browser builds
-      const Database = (await import('better-sqlite3')).default;
-      const path = (await import('path')).default;
+      const Database = (await import(/* @vite-ignore */ 'better-sqlite3')).default;
+      const path = (await import(/* @vite-ignore */ 'path')).default;
       const dbPath = path.resolve(process.cwd(), 'database', 'audit_store.db');
       
       const db = new Database(dbPath, { readonly: true });
