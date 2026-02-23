@@ -33,6 +33,8 @@ export default function MinesGame({
   const [verifiedMines, setVerifiedMines] = useState<number[]>([])
   const [isVerified, setIsVerified] = useState(false)
   const [probabilityMap, setProbabilityMap] = useState<number[]>([])
+  const [riskTiles, setRiskTiles] = useState<number[]>([])
+  const [safestTiles, setSafestTiles] = useState<number[]>([])
 
   const totalCells = gridSize * gridSize
   const cva = useMemo(() => new ClusterVarianceAnalyzer(), [])
@@ -48,18 +50,27 @@ export default function MinesGame({
         setVerifiedMines(currentResult.mines)
         setIsVerified(true)
         setProbabilityMap([])
+        setRiskTiles([])
+        setSafestTiles([])
       }
     }
 
-    // Probabilistic: show heat map
+    // Probabilistic: show heat map + risk tiles
     if (analysisResult.heatMap?.length === totalCells) {
       setProbabilityMap(analysisResult.heatMap)
       if (analysisResult.mode === 'PROBABILISTIC') {
         setVerifiedMines([])
         setIsVerified(false)
+        // Calculate risk tiles from heatmap
+        const sorted = analysisResult.heatMap
+          .map((prob: number, idx: number) => ({ idx, prob }))
+          .sort((a: { prob: number }, b: { prob: number }) => b.prob - a.prob)
+        const riskCount = Math.min(7, Math.max(5, mineCount + 2))
+        setRiskTiles(sorted.slice(0, riskCount).map((t: { idx: number }) => t.idx))
+        setSafestTiles(sorted.slice(-5).map((t: { idx: number }) => t.idx))
       }
     }
-  }, [analysisResult, nonce, totalCells])
+  }, [analysisResult, nonce, totalCells, mineCount])
 
   const handleVerify = () => {
     if (!serverSeedHash || !clientSeed) {
@@ -94,11 +105,35 @@ export default function MinesGame({
       return
     }
 
-    const heatMap = cva.generateDensityMap(totalCells, mineCount, `${clientSeed}:${nonce}`)
-    setProbabilityMap(heatMap)
+    // Run multiple Monte Carlo passes with different seed variations for richer data
+    const iterations = 3
+    const combinedMap = new Array(totalCells).fill(0)
+
+    for (let pass = 0; pass < iterations; pass++) {
+      const seedVariant = pass === 0
+        ? `${clientSeed}:${nonce}`
+        : `${clientSeed}:${nonce}:${pass}`
+      const heatMap = cva.generateDensityMap(totalCells, mineCount, seedVariant)
+      for (let i = 0; i < totalCells; i++) {
+        combinedMap[i] += heatMap[i] / iterations
+      }
+    }
+
+    setProbabilityMap(combinedMap)
     setIsVerified(false)
     setVerifiedMines([])
-    toast.success(`Probability analysis complete for ${gridSize}x${gridSize}`)
+
+    // Calculate risk tiles (highest mine probability)
+    const sorted = combinedMap
+      .map((prob: number, idx: number) => ({ idx, prob }))
+      .sort((a: { prob: number }, b: { prob: number }) => b.prob - a.prob)
+    const riskCount = Math.min(7, Math.max(5, mineCount + 2))
+    setRiskTiles(sorted.slice(0, riskCount).map((t: { idx: number }) => t.idx))
+    setSafestTiles(sorted.slice(-5).map((t: { idx: number }) => t.idx))
+
+    toast.success(
+      `Probability analysis complete — ${riskCount} risk tiles and 5 safest tiles identified`
+    )
   }
 
   return (
@@ -154,17 +189,20 @@ export default function MinesGame({
         }}
       >
         {(() => {
-          const baseRate = mineCount / totalCells; // e.g. 3/25 = 0.12
+          const baseRate = mineCount / totalCells;
           return Array.from({ length: totalCells }, (_, i) => {
             const isMine = verifiedMines.includes(i)
             const prob = probabilityMap[i] ?? 0
             const hasProb = probabilityMap.length > 0
+            const isRisk = riskTiles.includes(i)
+            const isSafest = safestTiles.includes(i)
 
             let displayText: string
             let bg: string
             let textColor: string
             let glow = ''
             let icon = ''
+            let label = ''
 
             if (isVerified) {
               if (isMine) {
@@ -180,39 +218,28 @@ export default function MinesGame({
                 displayText = 'SAFE'
               }
             } else if (hasProb) {
-              // Deviation-based coloring: compare to base rate
-              const deviation = prob - baseRate
-              const deviationPercent = baseRate > 0 ? (deviation / baseRate) * 100 : 0
               const minePercent = (prob * 100).toFixed(1)
-
               displayText = `${minePercent}%`
 
-              if (deviationPercent > 10) {
-                // More mines than average → RED
-                bg = 'bg-red-800/50 border-red-600/30'
+              if (isRisk) {
+                // High risk tile — visually prominent
+                bg = 'bg-red-800/60 border-red-500/50'
                 textColor = 'text-red-300'
-                icon = '💣'
-              } else if (deviationPercent > 3) {
-                // Slightly above average → ORANGE
-                bg = 'bg-orange-700/40 border-orange-600/30'
-                textColor = 'text-orange-200'
                 icon = '⚠️'
-              } else if (deviationPercent > -3) {
-                // Near average → YELLOW (50/50)
-                bg = 'bg-yellow-700/40 border-yellow-600/30'
-                textColor = 'text-yellow-200'
-                icon = '⚖️'
-              } else if (deviationPercent > -10) {
-                // Below average → LIGHT GREEN
-                bg = 'bg-emerald-700/40 border-emerald-600/30'
+                label = 'RISK'
+                glow = 'shadow-[0_0_8px_rgba(239,68,68,0.4)]'
+              } else if (isSafest) {
+                // Safest tile — visually prominent
+                bg = 'bg-emerald-700/50 border-emerald-500/40'
                 textColor = 'text-emerald-200'
                 icon = '✅'
+                label = 'SAFER'
+                glow = 'shadow-[0_0_8px_rgba(16,185,129,0.3)]'
               } else {
-                // Significantly below average → GREEN (safer)
-                bg = 'bg-emerald-600/60 border-emerald-500/50'
-                textColor = 'text-emerald-100'
-                glow = 'shadow-[0_0_8px_rgba(16,185,129,0.4)]'
-                icon = '💎'
+                // Neutral tile
+                bg = 'bg-slate-800 border-slate-600'
+                textColor = 'text-slate-300'
+                icon = ''
               }
             } else {
               bg = 'bg-slate-800 border-slate-700'
@@ -229,6 +256,7 @@ export default function MinesGame({
                 className={`${bg} ${glow} ${tileSize} flex flex-col items-center justify-center rounded-lg border transition-all duration-300`}
               >
                 {icon && <span className="text-sm leading-none">{icon}</span>}
+                {label && <span className="text-[8px] font-bold uppercase tracking-wide leading-none">{label}</span>}
                 <span className="text-[9px] text-gray-400 leading-none">#{i}</span>
                 <span className={`text-[10px] font-bold ${textColor} leading-none`}>{displayText}</span>
               </div>
@@ -236,6 +264,29 @@ export default function MinesGame({
           })
         })()}
       </div>
+
+      {/* Legend when probability map is showing */}
+      {probabilityMap.length > 0 && !isVerified && (
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center gap-4 text-xs">
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded bg-red-800/60 border border-red-500/50 inline-block" /> ⚠️ Risk Tiles ({riskTiles.length})
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded bg-emerald-700/50 border border-emerald-500/40 inline-block" /> ✅ Safer Tiles ({safestTiles.length})
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded bg-slate-800 border border-slate-600 inline-block" /> Neutral
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Based on {mineCount} mines in {totalCells} cells. Base rate: {((mineCount / totalCells) * 100).toFixed(1)}% per tile.
+            {!revealedServerSeed && (
+              <span className="text-amber-400 font-medium"> Without a revealed server seed, all tiles have approximately equal probability — risk tiles are based on Monte Carlo sampling variance.</span>
+            )}
+          </p>
+        </div>
+      )}
     </div>
   )
 }

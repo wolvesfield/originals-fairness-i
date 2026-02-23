@@ -60,6 +60,7 @@ export interface GameRoundResult {
   crashScanResults?: CrashScanResult[];
   kenoScanResults?: KenoScanResult[];
   modeResults?: AnalysisModeResult[];
+  riskTiles?: number[];
 }
 
 export interface ApexGoldenPathOption {
@@ -261,40 +262,47 @@ export class MasterController {
       );
     }
 
-    // PROBABILISTIC MODE — Multi-algorithm analysis
+    // PROBABILISTIC MODE — Statistical analysis (honest about limitations)
     const heatMap = this.cva.generateDensityMap(totalCells, mineCount, `${clientSeed}:${nonce}`);
     const deadZones = this.cva.identifyDeadZones(heatMap);
-    const target = deadZones.slice(0, 5);
 
-    // Run multiple analysis modes
+    // Pick 5-7 cells with HIGHEST mine probability as risk tiles
+    const sortedByRisk = heatMap
+      .map((prob, idx) => ({ idx, prob }))
+      .sort((a, b) => b.prob - a.prob);
+    const riskTiles = sortedByRisk.slice(0, Math.min(7, Math.max(5, mineCount + 2))).map(t => t.idx);
+    const safestTiles = sortedByRisk.slice(-5).map(t => t.idx);
+
+    // Run analysis modes for transparency reporting
     const modeResults = this.runMultiModeAnalysis(
       serverSeedOrHash, clientSeed, nonce, mineCount, totalCells, heatMap
     );
 
-    // Weighted average confidence across all modes
-    const weights = [0.30, 0.25, 0.20, 0.15, 0.10]; // MC, Entropy, Pattern, Chi2, BaseRate
-    let weightedConfidence = 0;
-    modeResults.forEach((mode, i) => {
-      weightedConfidence += mode.confidence * (weights[i] || 0.1);
-    });
-    const confidence = Math.min(weightedConfidence, 0.95); // Cap at 95% for probabilistic
+    // Honest confidence: the mathematical base rate is the REAL number
+    // Per-tile safety = (totalCells - mineCount) / totalCells
+    const perTileSafe = (totalCells - mineCount) / totalCells;
+    // For 5 target tiles with 3/25 mines → ~(22/25)^5 ≈ 65.6% (simplified)
+    const allTargetSafe = Math.pow(perTileSafe, targetPattern.length);
+    const confidence = allTargetSafe; // This IS the honest probability
 
     const hedgeFactor = this.hedge.calculateHedgeFactor(1);
     const alloc = this.allocation.calculateOptimalAllocation(confidence, 2.0, bankroll) * hedgeFactor;
 
     return {
       mode: 'PROBABILISTIC',
-      found: target.length > 0,
-      safePath: target,
+      found: false, // We did NOT find anything — be honest
+      safePath: safestTiles, // Show the statistically safest tiles
       confidence,
       allocation: alloc,
       heatMap,
-      modeResults
-    };
+      modeResults,
+      riskTiles // NEW: expose risk tiles for the UI
+    } as GameRoundResult;
   }
 
   /**
-   * Run 5 independent analysis modes and return per-mode confidence.
+   * Run 5 independent analysis modes — each reports HONEST statistical metrics.
+   * These do NOT predict outcomes. They characterize the fairness of the system.
    */
   private runMultiModeAnalysis(
     serverSeedHash: string,
@@ -304,91 +312,74 @@ export class MasterController {
     totalCells: number,
     heatMap: number[]
   ): AnalysisModeResult[] {
-    const baseRate = mineCount / totalCells; // e.g. 3/25 = 0.12
+    const baseRate = mineCount / totalCells;
+    const perTileSafe = 1 - baseRate;
     const results: AnalysisModeResult[] = [];
 
-    // ── Mode 1: Monte Carlo Variance Analysis ──
-    // Measures how much the heatmap deviates from perfect uniformity
+    // ── Mode 1: Monte Carlo Uniformity Check ──
     const mcVariance = this.computeVariance(heatMap, baseRate);
-    const maxExpectedVariance = baseRate * (1 - baseRate) / 100; // expected sampling variance
-    const varianceRatio = mcVariance / maxExpectedVariance;
-    // Higher variance = less uniform = potentially exploitable patterns
-    // But with provably fair, variance should be LOW → confidence should be LOW
-    const mcConfidence = Math.max(0.05, Math.min(0.60, 0.30 + (varianceRatio > 2 ? 0.15 : -0.10)));
+    const expectedVariance = baseRate * (1 - baseRate) / 10000; // For 10k iterations
+    const varianceRatio = mcVariance / Math.max(expectedVariance, 1e-10);
+    const isUniform = varianceRatio < 3;
     results.push({
-      name: 'Monte Carlo Variance',
-      confidence: mcConfidence,
-      description: `10,000 iteration simulation. Variance ratio: ${varianceRatio.toFixed(2)}x expected.`,
-      details: {
-        variance: mcVariance,
-        expectedVariance: maxExpectedVariance,
-        varianceRatio,
-        iterations: 10000
-      }
+      name: 'Monte Carlo Uniformity',
+      confidence: perTileSafe, // honest: just the per-tile safety rate
+      description: isUniform
+        ? `Distribution is uniform (variance ratio: ${varianceRatio.toFixed(2)}x). System appears provably fair — all tiles have equal ~${(baseRate * 100).toFixed(1)}% mine probability.`
+        : `Slight non-uniformity detected (variance ratio: ${varianceRatio.toFixed(2)}x). Some tiles show marginally different mine frequencies across 10,000 simulations.`,
+      details: { variance: mcVariance, expectedVariance, varianceRatio, iterations: 10000, isUniform }
     });
 
-    // ── Mode 2: Entropy Analysis ──
-    // Analyze the entropy of the server seed hash
+    // ── Mode 2: Hash Entropy Quality ──
     const hashEntropy = this.computeHashEntropy(serverSeedHash);
-    // Perfect SHA-256 hash has ~4 bits entropy per hex char (max ~256 bits for 64 chars)
-    // Real hashes should have high entropy; low entropy could indicate weak seed
     const maxEntropy = Math.min(serverSeedHash.length, 64) * 4;
-    const entropyRatio = hashEntropy / maxEntropy;
-    // High entropy (close to 1.0) = strong hash = hard to predict = lower confidence
-    // Low entropy = potentially weak seed = slightly higher exploitability
-    const entropyConfidence = Math.max(0.05, Math.min(0.45, 0.50 - entropyRatio * 0.40));
+    const entropyRatio = hashEntropy / Math.max(maxEntropy, 1);
+    const hashQuality = entropyRatio > 0.9 ? 'Strong' : entropyRatio > 0.7 ? 'Moderate' : 'Weak';
     results.push({
-      name: 'Entropy Analysis',
-      confidence: entropyConfidence,
-      description: `Hash entropy: ${hashEntropy.toFixed(1)} / ${maxEntropy.toFixed(0)} bits. ${entropyRatio > 0.9 ? 'Strong hash — low predictability.' : 'Below expected entropy.'}`,
-      details: {
-        hashEntropy,
-        maxEntropy,
-        entropyRatio,
-        assessment: entropyRatio > 0.9 ? 'strong' : entropyRatio > 0.7 ? 'moderate' : 'weak'
-      }
+      name: 'Hash Entropy',
+      confidence: entropyRatio, // 0-1 scale showing hash quality
+      description: `${hashQuality} hash quality (${hashEntropy.toFixed(1)}/${maxEntropy} bits). ${
+        hashQuality === 'Strong'
+          ? 'Hash is cryptographically strong — outcomes are unpredictable without the server seed.'
+          : 'Hash shows lower-than-expected entropy — could indicate a non-random seed.'
+      }`,
+      details: { hashEntropy, maxEntropy, entropyRatio, hashQuality }
     });
 
-    // ── Mode 3: Nonce Sequence Pattern Detection ──
-    // Detect if the nonce is in a potentially favorable position
-    // based on common provably fair implementation patterns
+    // ── Mode 3: Nonce Context ──
     const nonceAnalysis = this.analyzeNoncePatterns(nonce, mineCount, totalCells);
     results.push({
-      name: 'Pattern Detection',
-      confidence: nonceAnalysis.confidence,
-      description: nonceAnalysis.description,
+      name: 'Nonce Analysis',
+      confidence: perTileSafe,
+      description: `Nonce #${nonce}: ${nonceAnalysis.description}. Each round is cryptographically independent — past nonces do not affect future outcomes.`,
       details: nonceAnalysis.details
     });
 
-    // ── Mode 4: Chi-Square Uniformity Test ──
-    // Test if the heatmap distribution passes chi-square test for uniformity
+    // ── Mode 4: Chi-Square Fairness Test ──
     const chiSquareResult = this.chiSquareTest(heatMap, baseRate);
-    // If chi-square is low → distribution is uniform → provably fair → hard to exploit
-    // If chi-square is high → non-uniform → potential patterns
-    const chiConfidence = Math.max(0.05, Math.min(0.50, chiSquareResult.pValue < 0.05 ? 0.35 : 0.15));
+    const isFair = chiSquareResult.pValue >= 0.05;
     results.push({
-      name: 'Chi-Square Uniformity',
-      confidence: chiConfidence,
-      description: `χ² = ${chiSquareResult.statistic.toFixed(2)}, p-value = ${chiSquareResult.pValue.toFixed(4)}. ${chiSquareResult.pValue < 0.05 ? 'Non-uniform distribution detected.' : 'Distribution appears uniform.'}`,
+      name: 'Chi-Square Fairness',
+      confidence: chiSquareResult.pValue, // p-value: high = fair
+      description: isFair
+        ? `PASS — Distribution is statistically fair (p=${chiSquareResult.pValue.toFixed(4)}). No exploitable bias detected.`
+        : `ALERT — Non-uniform distribution detected (p=${chiSquareResult.pValue.toFixed(4)}, χ²=${chiSquareResult.statistic.toFixed(2)}). May indicate implementation bias.`,
       details: chiSquareResult
     });
 
-    // ── Mode 5: Base Rate Computation ──
-    // Pure mathematical probability — what you'd expect from a fair system
-    const baseRateConfidence = 1 - baseRate; // e.g. 88% for 3/25
-    // But this is just the per-tile safety rate, not a "prediction"
-    // Scale it down to reflect that we're NOT predicting anything
-    const scaledBaseRate = Math.max(0.05, baseRateConfidence * 0.20); // 88% → 17.6%
+    // ── Mode 5: Mathematical Base Rate ──
+    const fiveTargetProb = Math.pow(perTileSafe, 5); // Probability 5 random tiles are all safe
     results.push({
-      name: 'Base Rate',
-      confidence: scaledBaseRate,
-      description: `Mathematical base rate: ${(baseRateConfidence * 100).toFixed(1)}% per tile safe. This is the expected rate for any fair ${mineCount}-mine / ${totalCells}-cell game.`,
+      name: 'Base Rate Math',
+      confidence: fiveTargetProb,
+      description: `Each tile: ${(perTileSafe * 100).toFixed(1)}% safe. Picking 5 safe tiles: ${(fiveTargetProb * 100).toFixed(1)}% probability. This is the TRUE mathematical expectation for ${mineCount} mines in ${totalCells} cells.`,
       details: {
         baseRate,
-        perTileSafety: baseRateConfidence,
+        perTileSafety: perTileSafe,
+        fiveTargetSafe: fiveTargetProb,
         mineCount,
         totalCells,
-        note: 'This is not a prediction — it is the mathematical expectation.'
+        note: 'Without the server seed, this is the best anyone can do — the system is provably fair.'
       }
     });
 

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { buildProxiedUrl } from './ApiConnections'
+import { buildProxiedUrl, resilientFetch } from './ApiConnections'
 
 interface StakeBet {
   serverSeedHash: string
@@ -51,8 +51,6 @@ export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://corspro
   }
 
   const graphqlFetch = async (query: string, variables: Record<string, unknown> = {}, operationName?: string) => {
-    const endpoint = buildProxiedUrl(RAW_ENDPOINT, corsProxy)
-
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Accept': '*/*',
@@ -63,18 +61,15 @@ export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://corspro
 
     let response: Response
     try {
-      response = await fetch(endpoint, {
+      response = await resilientFetch(RAW_ENDPOINT, corsProxy, {
         method: 'POST',
         headers,
         body: JSON.stringify({ query, variables })
       })
     } catch (fetchErr: any) {
-      if (fetchErr.message?.includes('Failed to fetch') || fetchErr.message?.includes('NetworkError')) {
-        throw new Error(
-          'CORS blocked — go to the "API Connections" panel → Proxy tab and configure a CORS proxy, then retry.'
-        )
-      }
-      throw fetchErr
+      throw new Error(
+        'All proxy routes failed — go to "API Connections" → Proxy tab. For reliable access, deploy the Cloudflare Worker from the worker/ folder.'
+      )
     }
 
     if (!response.ok) {

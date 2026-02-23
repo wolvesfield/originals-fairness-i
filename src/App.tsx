@@ -17,6 +17,7 @@ import StakeMyBets from '@/components/StakeMyBets'
 import SeedHistory from '@/components/SeedHistory'
 import ApiConnections from '@/components/ApiConnections'
 import type { ApiConfig } from '@/components/ApiConnections'
+import GameResultRecorder from '@/components/GameResultRecorder'
 import { GoldPathHUD } from '@/components/GoldPathHUD'
 import { FutureChainSidebar } from '@/components/FutureChainSidebar'
 import { MinesGrid } from '@/components/MinesGrid'
@@ -295,6 +296,16 @@ function App() {
         {platform === 'stake' && (
           <StakeMyBets onApplySeeds={handleStakeApplySeeds} corsProxy={apiConfig.corsProxy} />
         )}
+
+        {/* Game Result Recorder */}
+        <GameResultRecorder
+          platform={platform}
+          serverSeedHash={serverSeedHash}
+          clientSeed={clientSeed}
+          nonce={nonce}
+          mineCount={mineCount}
+          refreshTrigger={historyRefreshTrigger}
+        />
 
         <Card className="p-6">
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as AppTab)}>

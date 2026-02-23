@@ -8,7 +8,7 @@
 import type { VerifiedSeed } from '../lib/types'
 
 const DB_NAME = 'originals_fairness_db'
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 // ---------------------------------------------------------------------------
 // IndexedDB setup
@@ -34,6 +34,13 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('seed_history')) {
         const historyStore = db.createObjectStore('seed_history', { keyPath: 'id', autoIncrement: true })
         historyStore.createIndex('timestamp', 'timestamp', { unique: false })
+      }
+
+      if (!db.objectStoreNames.contains('game_results')) {
+        const gameStore = db.createObjectStore('game_results', { keyPath: 'id', autoIncrement: true })
+        gameStore.createIndex('timestamp', 'timestamp', { unique: false })
+        gameStore.createIndex('platform', 'platform', { unique: false })
+        gameStore.createIndex('gameType', 'gameType', { unique: false })
       }
     }
 
@@ -190,4 +197,90 @@ export async function clearSeedHistory(): Promise<void> {
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
   })
+}
+
+// ---------------------------------------------------------------------------
+// Game Results — manual recording of game outcomes
+// ---------------------------------------------------------------------------
+
+export interface GameResultEntry {
+  id?: number
+  platform: string
+  gameType: 'mines' | 'keno' | 'crash'
+  mineCount?: number
+  totalCells?: number
+  minesFound?: string // comma-separated mine positions
+  won: boolean
+  betAmount: number
+  payout: number
+  serverSeedHash?: string
+  clientSeed?: string
+  nonce?: number
+  notes?: string
+  timestamp: string
+}
+
+export async function addGameResult(entry: Omit<GameResultEntry, 'id'>): Promise<void> {
+  const db = await getDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('game_results', 'readwrite')
+    tx.objectStore('game_results').add(entry)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
+export async function getGameResults(limit: number = 100): Promise<GameResultEntry[]> {
+  const db = await getDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('game_results', 'readonly')
+    const index = tx.objectStore('game_results').index('timestamp')
+    const results: GameResultEntry[] = []
+
+    const request = index.openCursor(null, 'prev')
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (cursor && results.length < limit) {
+        results.push(cursor.value as GameResultEntry)
+        cursor.continue()
+      } else {
+        resolve(results)
+      }
+    }
+    request.onerror = () => reject(request.error)
+  })
+}
+
+export async function clearGameResults(): Promise<void> {
+  const db = await getDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('game_results', 'readwrite')
+    tx.objectStore('game_results').clear()
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
+export async function getGameResultStats(): Promise<{
+  totalGames: number
+  wins: number
+  losses: number
+  winRate: number
+  totalBet: number
+  totalPayout: number
+  netPnL: number
+}> {
+  const results = await getGameResults(10000)
+  const wins = results.filter(r => r.won).length
+  const totalBet = results.reduce((sum, r) => sum + r.betAmount, 0)
+  const totalPayout = results.reduce((sum, r) => sum + r.payout, 0)
+  return {
+    totalGames: results.length,
+    wins,
+    losses: results.length - wins,
+    winRate: results.length > 0 ? (wins / results.length) * 100 : 0,
+    totalBet,
+    totalPayout,
+    netPnL: totalPayout - totalBet
+  }
 }

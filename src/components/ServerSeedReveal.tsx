@@ -138,12 +138,14 @@ export default function ServerSeedReveal({
                 <div className="flex items-center gap-2 mb-2">
                   <Lightning size={20} className="text-amber-400" />
                   <span className="text-sm font-semibold text-amber-400">
-                    Multi-Algorithm Probabilistic Analysis
+                    Fairness & Statistical Analysis
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  5 independent analysis modes running. Without a revealed server seed, predictions
-                  are limited by provably fair randomness. Provide a revealed seed below for exact results.
+                  Without a revealed server seed, exact mine positions CANNOT be predicted —
+                  this is how provably fair systems work. The percentages below show the mathematical
+                  base rates and fairness checks, NOT prediction accuracy. Provide a revealed seed
+                  below for exact verification.
                 </p>
               </div>
             )}
@@ -176,7 +178,9 @@ export default function ServerSeedReveal({
 
             <div className="grid grid-cols-3 gap-3">
               <div className="p-3 bg-secondary rounded-md text-center">
-                <p className="text-xs text-muted-foreground">Weighted Confidence</p>
+                <p className="text-xs text-muted-foreground">
+                  {isDeterministic ? 'Verification Confidence' : 'Per-Tile Safety Rate'}
+                </p>
                 <p className={`text-lg font-bold ${getConfidenceColor(confidence)}`}>
                   {(confidence * 100).toFixed(1)}%
                 </p>
@@ -184,11 +188,13 @@ export default function ServerSeedReveal({
               <div className="p-3 bg-secondary rounded-md text-center">
                 <p className="text-xs text-muted-foreground">Mode</p>
                 <p className="text-lg font-bold text-foreground">
-                  {isDeterministic ? 'EXACT' : `${analysisResult.modeResults?.length || 1} MODES`}
+                  {isDeterministic ? 'EXACT' : 'STATISTICAL'}
                 </p>
               </div>
               <div className="p-3 bg-secondary rounded-md text-center">
-                <p className="text-xs text-muted-foreground">Allocation</p>
+                <p className="text-xs text-muted-foreground">
+                  {isDeterministic ? 'Kelly Allocation' : 'Suggested Allocation'}
+                </p>
                 <p className="text-lg font-bold text-foreground">
                   {analysisResult.allocation?.toFixed(2) ?? '0.00'}
                 </p>

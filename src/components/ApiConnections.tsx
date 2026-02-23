@@ -95,22 +95,24 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
       return
     }
     setStakeStatus('testing')
-    setStakeDetail('')
+    setStakeDetail('Trying multiple proxy routes…')
 
     try {
-      const endpoint = buildProxiedUrl('https://stake.com/_api/graphql', config.corsProxy)
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-access-token': config.stakeToken,
-          'x-language': 'en',
-        },
-        body: JSON.stringify({
-          query: `query { user { name balances { available { amount currency { name } } } } }`,
-        }),
-      })
+      const res = await resilientFetch(
+        'https://stake.com/_api/graphql',
+        config.corsProxy,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-access-token': config.stakeToken,
+            'x-language': 'en',
+          },
+          body: JSON.stringify({
+            query: `query { user { name balances { available { amount currency { name } } } } }`,
+          }),
+        }
+      )
 
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
 
@@ -120,7 +122,6 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
       const username = data.data?.user?.name
       if (!username) throw new Error('Token invalid — no user returned')
 
-      // also store in legacy key so StakeMyBets picks it up
       localStorage.setItem('stake_auth_token', config.stakeToken)
 
       setStakeStatus('active')
@@ -130,8 +131,10 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
       const msg = err.message || 'Unknown error'
       setStakeStatus('error')
 
-      if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('CORS')) {
-        setStakeDetail('CORS blocked — configure a proxy in the Proxy tab, then retry')
+      if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('CORS') || msg.includes('proxies failed')) {
+        setStakeDetail('All proxy routes failed. Try: 1) Check token validity 2) Deploy Cloudflare Worker (see worker/ folder)')
+      } else if (msg.includes('403')) {
+        setStakeDetail('403 Forbidden — Stake may block proxied requests. Deploy the Cloudflare Worker for reliable access.')
       } else {
         setStakeDetail(msg)
       }
@@ -338,7 +341,58 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
 }
 
 /* ─── utility ─── */
+
+/**
+ * Build a proxied URL. If proxyPrefix ends with `&url=` or `?url=`,
+ * the target is appended URL-encoded. Otherwise it is appended raw.
+ */
 export function buildProxiedUrl(targetUrl: string, proxyPrefix: string): string {
   if (!proxyPrefix) return targetUrl
+  // If prefix already ends with "url=" just encode the target
+  if (proxyPrefix.endsWith('url=')) {
+    return proxyPrefix + encodeURIComponent(targetUrl)
+  }
+  // Otherwise treat as a simple prefix (e.g. custom worker: https://myworker.workers.dev/)
   return proxyPrefix + encodeURIComponent(targetUrl)
+}
+
+/**
+ * Multi-proxy fetch: tries the primary proxy, and if it fails with a CORS/network
+ * error, falls back to alternative proxies automatically.
+ */
+const FALLBACK_PROXIES = [
+  'https://corsproxy.io/?key=f02f2d8a&url=',
+  'https://api.allorigins.win/raw?url=',
+  'https://api.codetabs.com/v1/proxy?quest=',
+]
+
+export async function resilientFetch(
+  targetUrl: string,
+  primaryProxy: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  const proxies = [primaryProxy, ...FALLBACK_PROXIES.filter(p => p !== primaryProxy)]
+
+  let lastError: Error | null = null
+
+  for (const proxy of proxies) {
+    try {
+      const url = buildProxiedUrl(targetUrl, proxy)
+      const res = await fetch(url, { ...init, signal: AbortSignal.timeout(15000) })
+      if (res.ok || res.status < 500) return res // even 4xx from Stake is useful info
+      // 5xx from proxy → try next
+      lastError = new Error(`Proxy ${proxy.slice(0, 40)}… returned ${res.status}`)
+    } catch (err: any) {
+      lastError = err
+      continue
+    }
+  }
+
+  // All proxies failed — try direct (might work in Electron / extensions)
+  try {
+    const res = await fetch(targetUrl, { ...init, signal: AbortSignal.timeout(10000) })
+    return res
+  } catch {
+    throw lastError ?? new Error('All CORS proxies failed and direct fetch blocked')
+  }
 }
