@@ -13,16 +13,25 @@
  */
 
 import express from 'express'
-import cors from 'cors'
 import {
   generateMinePositions,
   generateKenoNumbers,
-  computeCrashPoint,
+  calculateCrashPoint,
   generateFloat,
 } from '../utils/fairnessEngine'
 
 const app = express()
-app.use(cors())
+// Inline CORS middleware (avoids separate 'cors' package dependency)
+app.use((_req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*')
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  // COOP/COEP — required for SharedArrayBuffer in worker pool
+  res.header('Cross-Origin-Opener-Policy', 'same-origin')
+  res.header('Cross-Origin-Embedder-Policy', 'require-corp')
+  if (_req.method === 'OPTIONS') { res.sendStatus(204); return }
+  next()
+})
 app.use(express.json())
 
 const PORT = parseInt(process.env.PORT || '3737', 10)
@@ -128,7 +137,7 @@ app.post('/aim/crash', (req, res) => {
   const golden: Array<{ nonce: number; multiplier: number }> = []
 
   for (let n = nonce; n < nonce + cap; n++) {
-    const multiplier = computeCrashPoint(serverSeed, clientSeed, n)
+    const multiplier = calculateCrashPoint(serverSeed, clientSeed, n)
     if (multiplier >= targetMultiplier) {
       golden.push({ nonce: n, multiplier })
     }

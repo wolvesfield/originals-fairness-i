@@ -366,6 +366,10 @@ function App() {
                 nonce={nonce}
                 onVerify={() => handleVerify('keno')}
                 analysisResult={analysisResult}
+                onUserPicksChange={(picks) => {
+                  // Keno picks are used as target pattern for analysis
+                  setUserTargetTiles(picks)
+                }}
               />
             </TabsContent>
 

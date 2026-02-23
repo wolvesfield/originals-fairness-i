@@ -291,6 +291,16 @@ export class MasterController {
     const hedgeFactor = this.hedge.calculateHedgeFactor(1);
     const alloc = this.allocation.calculateOptimalAllocation(confidence, 2.0, bankroll) * hedgeFactor;
 
+    // Auto-fire telemetry when probabilistic confidence meets threshold
+    if (confidence >= 0.92) {
+      this.telemetry.dispatchSignal({
+        confidence,
+        allocation: alloc,
+        targetZone: `PROBABILISTIC — ${k} tiles, ${mineCount}/${totalCells} mines`,
+        volatilitySigma: hedgeFactor < 1 ? 1.5 : 0.8,
+      }).catch(() => {/* non-blocking */});
+    }
+
     return {
       mode: 'PROBABILISTIC',
       found: false, // We did NOT find anything — be honest

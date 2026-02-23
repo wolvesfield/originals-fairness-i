@@ -348,20 +348,16 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
 /* ─── utility ─── */
 
 /**
- * Build headers that mimic a real Chrome browser session on stake.com.
- * Extracted from actual successful network requests (HAR capture).
- * These headers are critical for bypassing Cloudflare's fingerprint checks.
+ * Build simple headers for Stake.com API requests.
+ * NOTE: Forbidden headers (Origin, User-Agent, Referer, sec-ch-ua, sec-fetch-*)
+ * CANNOT be set client-side — browsers silently drop them.
+ * All browser-mimicking header injection happens in the Cloudflare Worker proxy
+ * (see worker/cors-proxy-worker.js).
  */
 export function stakeHeaders(token: string, operationName?: string): Record<string, string> {
   const headers: Record<string, string> = {
     'Accept': 'application/graphql+json, application/json',
     'Content-Type': 'application/json',
-    'Origin': 'https://stake.com',
-    'Referer': 'https://stake.com/',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-    'sec-ch-ua': '"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
     'x-access-token': token,
     'x-language': 'en',
   }
@@ -416,19 +412,9 @@ export async function resilientFetch(
     ? allProxies.filter(p => !p.includes('allorigins.win') && !p.includes('codetabs.com'))
     : allProxies
 
-  // For Stake.com requests, inject browser-mimicking headers if not already set
-  const isStake = targetUrl.includes('stake.com')
-  if (isStake && init.headers) {
-    const existing = init.headers as Record<string, string>
-    if (!existing['Origin']) existing['Origin'] = 'https://stake.com'
-    if (!existing['Referer']) existing['Referer'] = 'https://stake.com/'
-    if (!existing['User-Agent']) {
-      existing['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36'
-    }
-    if (!existing['Accept'] || existing['Accept'] === '*/*') {
-      existing['Accept'] = 'application/graphql+json, application/json'
-    }
-  }
+  // NOTE: Forbidden headers (Origin, User-Agent, Referer, sec-fetch-*) are NOT
+  // injected here — browsers silently drop them. The Cloudflare Worker proxy
+  // handles all browser-mimicking header injection server-side.
 
   const errors: string[] = []
 

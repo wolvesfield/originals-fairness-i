@@ -13,6 +13,7 @@
         "generate-baseline": "tsx scripts/generateBaseline.ts",
         "baseline": "tsx scripts/generateBaseline.ts",
         "audit": "python scripts/entropy_auditor.py",
+        "stake-audit": "python scripts/stake_audit.py",
         "monte-carlo": "tsx src/analysis/ClusterVarianceAnalyzer.ts",
         "worker-test": "tsx src/workers/workerPool.ts",
         "alert-dispatch": "tsx src/telemetry/TelemetryDispatcher.ts",
