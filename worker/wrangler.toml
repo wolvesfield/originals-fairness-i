@@ -1,3 +1,4 @@
 name = "fairness-cors-proxy"
 main = "cors-proxy-worker.js"
 compatibility_date = "2024-01-01"
+account_id = "097a7d22f905b2aee3bf4564676124fb"

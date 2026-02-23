@@ -298,6 +298,8 @@ function App() {
           setNonce={setNonce}
           mineCount={mineCount}
           setMineCount={setMineCount}
+          revealedServerSeed={revealedServerSeed}
+          setRevealedServerSeed={setRevealedServerSeed}
         />
 
         <ServerSeedReveal

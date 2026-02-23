@@ -43,13 +43,18 @@ function saveConfig(config: ApiConfig) {
   if (config.corsProxy) localStorage.setItem('cors_proxy', config.corsProxy)
 }
 
-const DEFAULT_HASHES_KEY = '94b5b9c73e8a71fd34f7e12abea2e919'
-const DEFAULT_CORS_PROXY = 'https://fairness-cors-proxy.farhan-097.workers.dev/?url='
+const DEFAULT_HASHES_KEY = (import.meta.env.VITE_HASHES_API_KEY as string) || '94b5b9c73e8a71fd34f7e12abea2e919'
+const DEFAULT_CORS_PROXY = (import.meta.env.VITE_CORS_PROXY_URL as string) || 'https://fairness-cors-proxy.wolvesfield.workers.dev/?url='
+
+// In dev mode, use the Vite dev server proxy to bypass CORS without a worker
+export const IS_DEV = import.meta.env.DEV
+export const DEV_STAKE_PROXY = '/stake-api/graphql'
+export const DEV_HASHES_PROXY = '/hashes-api'
 
 function defaultConfig(): ApiConfig {
   return {
-    stakeToken: localStorage.getItem('stake_auth_token') || '',
-    stakeLockdownToken: localStorage.getItem('stake_lockdown_token') || '',
+    stakeToken: localStorage.getItem('stake_auth_token') || (import.meta.env.VITE_STAKE_AUTH_TOKEN as string) || '',
+    stakeLockdownToken: localStorage.getItem('stake_lockdown_token') || (import.meta.env.VITE_STAKE_X_ACCESS_TOKEN as string) || '',
     stakeCookie: localStorage.getItem('stake_cookie') || '',
     hashesApiKey: localStorage.getItem('hashes_api_key') || DEFAULT_HASHES_KEY,
     corsProxy: localStorage.getItem('cors_proxy') || DEFAULT_CORS_PROXY,
@@ -110,18 +115,30 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
         if (cookie.toLowerCase().startsWith('cookie:')) cookie = cookie.slice(7).trim()
         headers['x-stake-cookie'] = cookie
       }
-      const res = await resilientFetch(
-        'https://stake.com/_api/graphql',
-        config.corsProxy,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            operationName: 'GetUser',
-            query: `query GetUser { user { name balances { available { amount currency { name } } } } }`,
-          }),
-        }
-      )
+
+      // In dev mode use Vite proxy (bypasses CORS natively); in prod use resilientFetch
+      const stakeEndpoint = IS_DEV ? DEV_STAKE_PROXY : 'https://stake.com/_api/graphql'
+      const res = IS_DEV
+        ? await fetch(stakeEndpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              operationName: 'GetUser',
+              query: `query GetUser { user { name balances { available { amount currency { name } } } } }`,
+            }),
+          })
+        : await resilientFetch(
+            'https://stake.com/_api/graphql',
+            config.corsProxy,
+            {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                operationName: 'GetUser',
+                query: `query GetUser { user { name balances { available { amount currency { name } } } } }`,
+              }),
+            }
+          )
 
       if (!res.ok) {
         let body = ''

@@ -52,9 +52,8 @@ export default function CrashGame({
   }, [analysisResult, nonce])
 
   const calculateCrashPoint = () => {
-    // Use revealed server seed (from analysis or manual entry), NOT the hash
-    const seed = revealedServerSeed || serverSeedHash
-    return computeCrashPoint(seed, clientSeed, nonce)
+    if (!revealedServerSeed) return 1
+    return computeCrashPoint(revealedServerSeed, clientSeed, nonce)
   }
 
   const animate = (timestamp: number) => {
@@ -138,9 +137,9 @@ export default function CrashGame({
   return (
     <div className="space-y-6">
       {!revealedServerSeed && (
-        <p className="text-sm text-amber-600 dark:text-amber-400">
-          Fill Server Seed Hash + Client Seed + Nonce above, then run <strong>Analyze Game State</strong> (or paste revealed seed) so Crash can verify the multiplier.
-        </p>
+        <div className="p-3 rounded-lg bg-amber-500/20 border border-amber-500/50 text-sm text-amber-200">
+          <strong>Crash Verify needs the revealed server seed.</strong> Paste it in <strong>Configuration → Revealed Server Seed</strong> above, or in Stake tab click <strong>Load bet history</strong> → paste JSON → <strong>Use pasted data</strong> → then <strong>Apply</strong> a settled bet. Then come back and click Verify Crash.
+        </div>
       )}
       <div>
         <Button

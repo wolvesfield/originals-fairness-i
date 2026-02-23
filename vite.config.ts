@@ -89,7 +89,26 @@ export default defineConfig({
       // Required for SharedArrayBuffer support in Web Workers
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
-    }
+    },
+    proxy: {
+      // Dev proxy: routes /stake-api/* → stake.com GraphQL, bypassing CORS
+      '/stake-api': {
+        target: 'https://stake.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/stake-api/, '/_api'),
+        headers: {
+          'Origin': 'https://stake.com',
+          'Referer': 'https://stake.com/',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+        },
+      },
+      // Dev proxy: routes /hashes-api/* → hashes.com API
+      '/hashes-api': {
+        target: 'https://hashes.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/hashes-api/, '/en/api'),
+      },
+    },
   },
   preview: {
     headers: {

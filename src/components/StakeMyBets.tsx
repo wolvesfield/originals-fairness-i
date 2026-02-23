@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { buildProxiedUrl, resilientFetch, stakeHeaders } from './ApiConnections'
+import { buildProxiedUrl, resilientFetch, stakeHeaders, IS_DEV, DEV_STAKE_PROXY } from './ApiConnections'
 
 interface StakeBet {
   serverSeedHash: string
@@ -55,6 +55,7 @@ function parsePastedStakeJson(raw: string): { activePair: StakeActiveSeedPair | 
         const serverSeed = bet?.serverSeed as { seedHash?: string; seed?: string } | undefined
         const clientSeed = bet?.clientSeed as { seed?: string } | undefined
         const game = bet?.game as { slug?: string; name?: string } | undefined
+        const revealed = (serverSeed as Record<string, unknown>)?.seed ?? (serverSeed as Record<string, unknown>)?.revealedSeed ?? (serverSeed as Record<string, unknown>)?.revealed
         return {
           serverSeedHash: serverSeed?.seedHash ?? '',
           clientSeed: clientSeed?.seed ?? '',
@@ -62,7 +63,7 @@ function parsePastedStakeJson(raw: string): { activePair: StakeActiveSeedPair | 
           game: game?.slug ?? game?.name ?? 'unknown',
           createdAt: typeof bet?.createdAt === 'string' ? bet.createdAt : undefined,
           payout: bet?.payoutMultiplier != null ? parseFloat(String(bet.payoutMultiplier)) : undefined,
-          revealedServerSeed: serverSeed?.seed
+          revealedServerSeed: typeof revealed === 'string' ? revealed : undefined
         }
       }).filter((b: StakeBet & { revealedServerSeed?: string }) => b.serverSeedHash || b.clientSeed)
     : []
@@ -90,7 +91,7 @@ function parsePastedStakeJson(raw: string): { activePair: StakeActiveSeedPair | 
   return { activePair, bets }
 }
 
-const DEFAULT_STAKE_TOKEN = 'cf3f4d5a42f40a19ad83c94c285826a8d62d003f24260e6aa46f732bb2f681a434bacc48441c27824ab6c434776736e9'
+const DEFAULT_STAKE_TOKEN = (import.meta.env.VITE_STAKE_AUTH_TOKEN as string) || ''
 
 export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://corsproxy.io/?' }: StakeMyBetsProps) {
   const [pastedJson, setPastedJson] = useState('')
@@ -117,11 +118,20 @@ export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://corspro
 
     let response: Response
     try {
-      response = await resilientFetch(RAW_ENDPOINT, corsProxy, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ query, variables })
-      })
+      if (IS_DEV) {
+        // Dev mode: use Vite proxy — no CORS issues
+        response = await fetch(DEV_STAKE_PROXY, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ query, variables, operationName })
+        })
+      } else {
+        response = await resilientFetch(RAW_ENDPOINT, corsProxy, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ query, variables })
+        })
+      }
     } catch (fetchErr: any) {
       throw new Error(
         `Network error: ${fetchErr.message || 'All proxy routes failed'}. Go to "API Connections" → Proxy tab and try different proxies, or deploy the Cloudflare Worker from worker/ folder.`

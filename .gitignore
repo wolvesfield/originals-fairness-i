@@ -26,6 +26,8 @@ dist-ssr
 *.sw?
 
 .env
+.env.with-secrets
+env.with-secrets
 **/agent-eval-report*
 packages
 pids

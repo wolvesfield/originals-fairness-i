@@ -11,6 +11,8 @@ interface ConfigPanelProps {
   setNonce: (value: number) => void
   mineCount: number
   setMineCount: (value: number) => void
+  revealedServerSeed?: string | null
+  setRevealedServerSeed?: (value: string | null) => void
 }
 
 export default function ConfigPanel({
@@ -21,7 +23,9 @@ export default function ConfigPanel({
   nonce,
   setNonce,
   mineCount,
-  setMineCount
+  setMineCount,
+  revealedServerSeed,
+  setRevealedServerSeed
 }: ConfigPanelProps) {
   return (
     <Card className="p-6">
@@ -38,6 +42,21 @@ export default function ConfigPanel({
             className="font-mono text-sm"
           />
           <p className="text-xs text-muted-foreground">SHA-256 hash from your active game session</p>
+        </div>
+
+        <div className="space-y-2 md:col-span-2">
+          <Label htmlFor="revealed-server-seed">Revealed Server Seed (required for Verify Keno / Crash / Mines / Batch)</Label>
+          <Input
+            id="revealed-server-seed"
+            type="text"
+            value={revealedServerSeed ?? ''}
+            onChange={(e) => setRevealedServerSeed?.(e.target.value.trim() || null)}
+            placeholder="Paste here after a round settles, or from Stake bet history (Apply a bet)"
+            className="font-mono text-sm"
+          />
+          <p className="text-xs text-muted-foreground">
+            Stake reveals this only after a round. Paste it here, or use Stake tab → Load bet history → Apply a bet that has the seed.
+          </p>
         </div>
         
         <div className="space-y-2">
