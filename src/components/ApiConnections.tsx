@@ -112,7 +112,7 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
 
       if (!res.ok) {
         let body = ''
-        try { body = await res.text() } catch {}
+        try { body = await res.text() } catch { /* network error */ }
         const isCF = /cloudflare|cf-|just a moment/i.test(body)
         if (res.status === 403 && isCF) {
           throw new Error('403 Cloudflare block — deploy a Cloudflare Worker proxy (see worker/cors-proxy-worker.js)')
