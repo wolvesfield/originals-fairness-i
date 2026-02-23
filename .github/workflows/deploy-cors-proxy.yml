@@ -1,6 +1,9 @@
 name: Deploy CORS Proxy Worker
 
 on:
+  push:
+    branches: [main]
+    paths: ['worker/**']
   workflow_dispatch:
 
 jobs:

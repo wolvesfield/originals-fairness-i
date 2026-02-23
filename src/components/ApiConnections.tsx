@@ -100,12 +100,16 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
       return
     }
     setStakeStatus('testing')
-    setStakeDetail('Trying multiple proxy routes…')
+    setStakeDetail('Sending token + lockdown + cookie…')
 
     try {
       const headers: Record<string, string> = stakeHeaders(config.stakeToken, 'GetUser')
       if (config.stakeLockdownToken?.trim()) headers['x-lockdown-token'] = config.stakeLockdownToken.trim()
-      if (config.stakeCookie?.trim()) headers['x-stake-cookie'] = config.stakeCookie.trim()
+      if (config.stakeCookie?.trim()) {
+        let cookie = config.stakeCookie.trim().replace(/\s+/g, ' ')
+        if (cookie.toLowerCase().startsWith('cookie:')) cookie = cookie.slice(7).trim()
+        headers['x-stake-cookie'] = cookie
+      }
       const res = await resilientFetch(
         'https://stake.com/_api/graphql',
         config.corsProxy,
@@ -123,12 +127,13 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
         let body = ''
         try { body = await res.text() } catch { /* ignore */ }
         const isCF = /cloudflare|cf-|just a moment/i.test(body)
+        const snippet = body.slice(0, 200).replace(/\s+/g, ' ')
         if (res.status === 403) {
           throw new Error(
-            'STAKE_403: Token expired or invalid. Get a fresh token: 1) Open stake.com in a new tab and log in. 2) Press F12 → Network. 3) Click something on the site. 4) Click a request to "graphql". 5) Headers → Request Headers → copy "x-access-token". 6) Paste it above and click Test again.'
+            `STAKE_403: Stake returned 403. Response: ${snippet || '(empty)'}. Get a fresh token + lockdown + cookie from the same stake.com request and paste all 3 above. If it still fails, Stake may be blocking server IPs (try again later from same network).`
           )
         }
-        throw new Error(`HTTP ${res.status}${isCF ? ' (Cloudflare)' : ''} ${res.statusText}`)
+        throw new Error(`HTTP ${res.status}${isCF ? ' (Cloudflare)' : ''} ${res.statusText}. ${snippet ? `Body: ${snippet}` : ''}`)
       }
 
       const data = await res.json()
@@ -149,7 +154,7 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
       if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('CORS') || msg.includes('proxies failed')) {
         setStakeDetail('All proxy routes failed. Try: 1) Check token validity 2) Deploy Cloudflare Worker (see worker/ folder)')
       } else if (msg.includes('403') || msg.includes('STAKE_403')) {
-        setStakeDetail('Token expired or invalid. Get a fresh x-access-token from stake.com (F12 → Network → graphql request → copy x-access-token header), paste above, then Test again.')
+        setStakeDetail(msg.length > 400 ? msg.slice(0, 400) + '…' : msg)
       } else {
         setStakeDetail(msg)
       }
@@ -271,6 +276,9 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
               {stakeStatus === 'testing' ? 'Testing…' : 'Test Connection'}
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Will send: token {config.stakeToken?.trim() ? '✓' : '—'}, lockdown {config.stakeLockdownToken?.trim() ? '✓' : '—'}, cookie {config.stakeCookie?.trim() ? '✓' : '—'}
+          </p>
 
           <div className="border-t border-border pt-4 mt-4">
             <p className="text-sm font-semibold text-amber-400 mb-3">If Test fails — paste these from the SAME request (scroll down here):</p>
