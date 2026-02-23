@@ -17,10 +17,10 @@
 const ALLOWED_ORIGINS = [
   'https://fluffy-dollop-kze8421.pages.github.io',
   'https://wolvesfield.github.io',
+  'https://arcanadraconi.github.io',
   'http://localhost:5173',
   'http://localhost:3000',
   'http://127.0.0.1:5173',
-  'http://localhost:5000',
 ];
 
 // Browser-mimicking headers for Stake.com (from HAR capture of real Chrome session)
@@ -38,11 +38,13 @@ const STAKE_BROWSER_HEADERS = {
 };
 
 function corsHeaders(origin) {
-  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  const inList = ALLOWED_ORIGINS.includes(origin);
+  const isGitHubPages = origin && (origin.endsWith('.github.io') || origin.includes('github.io'));
+  const allowedOrigin = inList || isGitHubPages ? origin : ALLOWED_ORIGINS[0];
   return {
     'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, x-access-token, x-language, x-operation-name, Authorization, Accept, Origin, Referer',
+    'Access-Control-Allow-Headers': 'Content-Type, x-access-token, x-language, x-operation-name, x-lockdown-token, x-stake-cookie, Authorization, Accept, Origin, Referer',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -95,6 +97,11 @@ export default {
            'connection', 'keep-alive', 'cdn-loop'].includes(lower)) continue;
       // For Stake: don't let the real origin/referer leak through
       if (targetIsStake && ['origin', 'referer', 'sec-fetch-site'].includes(lower)) continue;
+      // App sends cookie in X-Stake-Cookie; we forward it as Cookie to Stake (browser can't set Cookie from JS)
+      if (targetIsStake && lower === 'x-stake-cookie') {
+        forwardHeaders.set('Cookie', value);
+        continue;
+      }
       forwardHeaders.set(key, value);
     }
 

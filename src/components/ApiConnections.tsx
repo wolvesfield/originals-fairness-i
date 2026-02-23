@@ -12,6 +12,8 @@ export type ConnectionStatus = 'untested' | 'testing' | 'active' | 'error'
 
 export interface ApiConfig {
   stakeToken: string
+  stakeLockdownToken: string
+  stakeCookie: string
   hashesApiKey: string
   corsProxy: string
 }
@@ -35,17 +37,20 @@ function saveConfig(config: ApiConfig) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
   // persist individual keys so other components can read them
   if (config.stakeToken) localStorage.setItem('stake_auth_token', config.stakeToken)
+  if (config.stakeLockdownToken) localStorage.setItem('stake_lockdown_token', config.stakeLockdownToken)
+  if (config.stakeCookie) localStorage.setItem('stake_cookie', config.stakeCookie)
   if (config.hashesApiKey) localStorage.setItem('hashes_api_key', config.hashesApiKey)
   if (config.corsProxy) localStorage.setItem('cors_proxy', config.corsProxy)
 }
 
-const DEFAULT_STAKE_TOKEN = 'cf3f4d5a42f40a19ad83c94c285826a8d62d003f24260e6aa46f732bb2f681a434bacc48441c27824ab6c434776736e9'
 const DEFAULT_HASHES_KEY = '94b5b9c73e8a71fd34f7e12abea2e919'
-const DEFAULT_CORS_PROXY = 'https://fairness-cors-proxy.wolvesfield.workers.dev/?url='
+const DEFAULT_CORS_PROXY = 'https://fairness-cors-proxy.farhan-097.workers.dev/?url='
 
 function defaultConfig(): ApiConfig {
   return {
-    stakeToken: localStorage.getItem('stake_auth_token') || DEFAULT_STAKE_TOKEN,
+    stakeToken: localStorage.getItem('stake_auth_token') || '',
+    stakeLockdownToken: localStorage.getItem('stake_lockdown_token') || '',
+    stakeCookie: localStorage.getItem('stake_cookie') || '',
     hashesApiKey: localStorage.getItem('hashes_api_key') || DEFAULT_HASHES_KEY,
     corsProxy: localStorage.getItem('cors_proxy') || DEFAULT_CORS_PROXY,
   }
@@ -98,24 +103,30 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
     setStakeDetail('Trying multiple proxy routes…')
 
     try {
+      const headers: Record<string, string> = stakeHeaders(config.stakeToken, 'GetUser')
+      if (config.stakeLockdownToken?.trim()) headers['x-lockdown-token'] = config.stakeLockdownToken.trim()
+      if (config.stakeCookie?.trim()) headers['x-stake-cookie'] = config.stakeCookie.trim()
       const res = await resilientFetch(
         'https://stake.com/_api/graphql',
         config.corsProxy,
         {
           method: 'POST',
-          headers: stakeHeaders(config.stakeToken),
+          headers,
           body: JSON.stringify({
-            query: `query { user { name balances { available { amount currency { name } } } } }`,
+            operationName: 'GetUser',
+            query: `query GetUser { user { name balances { available { amount currency { name } } } } }`,
           }),
         }
       )
 
       if (!res.ok) {
         let body = ''
-        try { body = await res.text() } catch { /* network error */ }
+        try { body = await res.text() } catch {}
         const isCF = /cloudflare|cf-|just a moment/i.test(body)
-        if (res.status === 403 && isCF) {
-          throw new Error('403 Cloudflare block — deploy a Cloudflare Worker proxy (see worker/cors-proxy-worker.js)')
+        if (res.status === 403) {
+          throw new Error(
+            'STAKE_403: Token expired or invalid. Get a fresh token: 1) Open stake.com in a new tab and log in. 2) Press F12 → Network. 3) Click something on the site. 4) Click a request to "graphql". 5) Headers → Request Headers → copy "x-access-token". 6) Paste it above and click Test again.'
+          )
         }
         throw new Error(`HTTP ${res.status}${isCF ? ' (Cloudflare)' : ''} ${res.statusText}`)
       }
@@ -137,8 +148,8 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
 
       if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('CORS') || msg.includes('proxies failed')) {
         setStakeDetail('All proxy routes failed. Try: 1) Check token validity 2) Deploy Cloudflare Worker (see worker/ folder)')
-      } else if (msg.includes('403')) {
-        setStakeDetail('403 Forbidden — Stake may block proxied requests. Deploy the Cloudflare Worker for reliable access.')
+      } else if (msg.includes('403') || msg.includes('STAKE_403')) {
+        setStakeDetail('Token expired or invalid. Get a fresh x-access-token from stake.com (F12 → Network → graphql request → copy x-access-token header), paste above, then Test again.')
       } else {
         setStakeDetail(msg)
       }
@@ -245,7 +256,7 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
         {/* ── Stake ── */}
         <TabsContent value="stake" className="space-y-4">
           <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium">Stake.com Auth Token</Label>
+            <Label className="text-sm font-medium">1. x-access-token (required)</Label>
             <StatusBadge status={stakeStatus} detail={stakeDetail} />
           </div>
           <div className="flex gap-2">
@@ -253,23 +264,43 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
               type="password"
               value={config.stakeToken}
               onChange={e => updateConfig({ stakeToken: e.target.value })}
-              placeholder="Paste your x-access-token from Stake.com…"
+              placeholder="Paste x-access-token from DevTools → Request Headers"
               className="font-mono text-sm flex-1"
             />
             <Button onClick={testStakeConnection} disabled={stakeStatus === 'testing'} className="whitespace-nowrap">
               {stakeStatus === 'testing' ? 'Testing…' : 'Test Connection'}
             </Button>
           </div>
+
+          <div className="border-t border-border pt-4 mt-4">
+            <p className="text-sm font-semibold text-amber-400 mb-3">If Test fails — paste these from the SAME request (scroll down here):</p>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-sm font-medium">2. x-lockdown-token</Label>
+                <Input
+                  type="password"
+                  value={config.stakeLockdownToken}
+                  onChange={e => updateConfig({ stakeLockdownToken: e.target.value })}
+                  placeholder="Paste x-lockdown-token header value"
+                  className="font-mono text-sm mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-sm font-medium">3. Cookie (full header value)</Label>
+                <textarea
+                  value={config.stakeCookie}
+                  onChange={e => updateConfig({ stakeCookie: e.target.value })}
+                  placeholder="Right-click Cookie in Request Headers → Copy value. Paste here."
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs mt-1"
+                  rows={3}
+                />
+              </div>
+            </div>
+          </div>
+
           <div className="text-xs text-muted-foreground space-y-1">
-            <p><strong>How to get your token:</strong></p>
-            <ol className="list-decimal ml-4 space-y-0.5">
-              <li>Go to <span className="font-mono">stake.com</span> and log in</li>
-              <li>Open DevTools (F12) → Network tab</li>
-              <li>Make any action (e.g. click a game)</li>
-              <li>Find a request to <span className="font-mono">/_api/graphql</span></li>
-              <li>Copy the <span className="font-mono">x-access-token</span> header value</li>
-            </ol>
-            <p className="mt-2 text-yellow-500/80">⚠ Token is stored locally only. Never share it.</p>
+            <p><strong>Where to get them:</strong> F12 → Network → do something on stake.com → click any stake.com request → Headers → Request Headers. Copy 1) x-access-token 2) x-lockdown-token 3) Cookie (right-click → Copy value).</p>
+            <p className="mt-2 text-yellow-500/80">⚠ Stored locally only. Never share.</p>
           </div>
         </TabsContent>
 
@@ -320,8 +351,8 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
           </div>
           <div className="flex flex-wrap gap-2">
             {[
-              { label: 'CF Worker (recommended)', url: 'https://fairness-cors-proxy.wolvesfield.workers.dev/?url=' },
               { label: 'corsproxy.io', url: 'https://corsproxy.io/?' },
+              { label: 'corsproxy.io (keyed)', url: 'https://corsproxy.io/?key=f02f2d8a&url=' },
               { label: 'thingproxy', url: 'https://thingproxy.freeboard.io/fetch/' },
               { label: 'No proxy (direct)', url: '' },
             ].map(preset => (
@@ -374,12 +405,6 @@ export function stakeHeaders(token: string, operationName?: string): Record<stri
 export function buildProxiedUrl(targetUrl: string, proxyPrefix: string): string {
   if (!proxyPrefix) return targetUrl
 
-  // Cloudflare Workers proxy expects URL-encoded target in ?url= param
-  if (proxyPrefix.includes('workers.dev')) {
-    if (proxyPrefix.endsWith('url=')) return proxyPrefix + encodeURIComponent(targetUrl)
-    return proxyPrefix + targetUrl
-  }
-
   // corsproxy.io expects raw (non-encoded) URLs
   if (proxyPrefix.includes('corsproxy.io')) {
     return proxyPrefix + targetUrl
@@ -390,6 +415,7 @@ export function buildProxiedUrl(targetUrl: string, proxyPrefix: string): string 
     return proxyPrefix + encodeURIComponent(targetUrl)
   }
 
+  // Custom workers / other proxies: append raw URL
   return proxyPrefix + targetUrl
 }
 
@@ -398,8 +424,9 @@ export function buildProxiedUrl(targetUrl: string, proxyPrefix: string): string 
  * error, falls back to alternative proxies automatically.
  */
 const FALLBACK_PROXIES = [
-  'https://fairness-cors-proxy.wolvesfield.workers.dev/?url=',
   'https://corsproxy.io/?',
+  'https://corsproxy.io/?key=f02f2d8a&url=',
+  'https://proxy.cors.sh/',
   'https://thingproxy.freeboard.io/fetch/',
 ]
 
