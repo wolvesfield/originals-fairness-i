@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { buildProxiedUrl, resilientFetch } from './ApiConnections'
+import { buildProxiedUrl, resilientFetch, stakeHeaders } from './ApiConnections'
 
 interface StakeBet {
   serverSeedHash: string
@@ -51,13 +51,7 @@ export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://corspro
   }
 
   const graphqlFetch = async (query: string, variables: Record<string, unknown> = {}, operationName?: string) => {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Accept': '*/*',
-      'x-access-token': authToken,
-      'x-language': 'en',
-    }
-    if (operationName) headers['x-operation-name'] = operationName
+    const headers = stakeHeaders(authToken, operationName)
 
     let response: Response
     try {

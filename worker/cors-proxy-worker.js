@@ -11,6 +11,7 @@
  *
  * This worker forwards requests to any target URL, adding proper CORS headers.
  * It supports POST (for GraphQL) and GET requests.
+ * It injects browser-like headers for Stake.com to bypass Cloudflare fingerprinting.
  */
 
 const ALLOWED_ORIGINS = [
@@ -20,14 +21,37 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:5173',
 ];
 
+// Browser-mimicking headers for Stake.com (from HAR capture of real Chrome session)
+const STAKE_BROWSER_HEADERS = {
+  'Origin': 'https://stake.com',
+  'Referer': 'https://stake.com/',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+  'sec-ch-ua': '"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"',
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"Windows"',
+  'sec-fetch-dest': 'empty',
+  'sec-fetch-mode': 'cors',
+  'sec-fetch-site': 'same-origin',
+  'Accept': 'application/graphql+json, application/json',
+};
+
 function corsHeaders(origin) {
   const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   return {
     'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, x-access-token, x-language, x-operation-name, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, x-access-token, x-language, x-operation-name, Authorization, Accept, Origin, Referer',
     'Access-Control-Max-Age': '86400',
   };
+}
+
+function isStakeUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === 'stake.com' || parsed.hostname.endsWith('.stake.com');
+  } catch {
+    return false;
+  }
 }
 
 export default {
@@ -51,11 +75,24 @@ export default {
 
     // Build forwarded headers — pass through content-type, auth tokens, etc.
     const forwardHeaders = new Headers();
+
+    // If targeting Stake, inject browser-like headers FIRST
+    const targetIsStake = isStakeUrl(targetUrl);
+    if (targetIsStake) {
+      for (const [key, value] of Object.entries(STAKE_BROWSER_HEADERS)) {
+        forwardHeaders.set(key, value);
+      }
+    }
+
+    // Then overlay request headers (so auth tokens like x-access-token come through)
     for (const [key, value] of request.headers.entries()) {
       const lower = key.toLowerCase();
-      // Skip hop-by-hop and host headers
-      if (['host', 'origin', 'referer', 'cf-connecting-ip', 'cf-ray', 'cf-visitor',
-           'cf-ipcountry', 'x-forwarded-for', 'x-real-ip'].includes(lower)) continue;
+      // Skip hop-by-hop, host, and CF-specific headers
+      if (['host', 'cf-connecting-ip', 'cf-ray', 'cf-visitor',
+           'cf-ipcountry', 'x-forwarded-for', 'x-real-ip',
+           'connection', 'keep-alive', 'cdn-loop'].includes(lower)) continue;
+      // For Stake: don't let the real origin/referer leak through
+      if (targetIsStake && ['origin', 'referer', 'sec-fetch-site'].includes(lower)) continue;
       forwardHeaders.set(key, value);
     }
 

@@ -64,9 +64,12 @@ function App() {
 
   const totalCells = platform === 'roobet' ? 64 : 25
   const gridSize = platform === 'roobet' ? 8 : 5
-  const targetTiles = platform === 'roobet'
+  const [userTargetTiles, setUserTargetTiles] = useState<number[]>([])
+  const defaultTargetTiles = platform === 'roobet'
     ? Array.from({ length: 16 }, (_, i) => i)
     : [0, 1, 2, 3, 4]
+  // Use user-painted tiles if any, otherwise fall back to defaults
+  const targetTiles = userTargetTiles.length > 0 ? userTargetTiles : defaultTargetTiles
   const probabilisticHeatmapReady = (heatMap ?? []).some((v: number) => v > 0)
 
   const handleVerify = (game: GameType) => {
@@ -351,6 +354,7 @@ function App() {
                 mineCount={mineCount}
                 onVerify={() => handleVerify('mines')}
                 analysisResult={analysisResult}
+                onTargetTilesChange={setUserTargetTiles}
               />
             </TabsContent>
 

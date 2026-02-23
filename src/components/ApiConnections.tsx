@@ -103,11 +103,7 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
         config.corsProxy,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-access-token': config.stakeToken,
-            'x-language': 'en',
-          },
+          headers: stakeHeaders(config.stakeToken),
           body: JSON.stringify({
             query: `query { user { name balances { available { amount currency { name } } } } }`,
           }),
@@ -352,6 +348,28 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
 /* ─── utility ─── */
 
 /**
+ * Build headers that mimic a real Chrome browser session on stake.com.
+ * Extracted from actual successful network requests (HAR capture).
+ * These headers are critical for bypassing Cloudflare's fingerprint checks.
+ */
+export function stakeHeaders(token: string, operationName?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Accept': 'application/graphql+json, application/json',
+    'Content-Type': 'application/json',
+    'Origin': 'https://stake.com',
+    'Referer': 'https://stake.com/',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+    'sec-ch-ua': '"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'x-access-token': token,
+    'x-language': 'en',
+  }
+  if (operationName) headers['x-operation-name'] = operationName
+  return headers
+}
+
+/**
  * Build a proxied URL. Different proxies expect different formats:
  * - corsproxy.io: raw URL after `?` (NOT encoded)
  * - allorigins/codetabs: encoded URL after `url=` or `quest=`
@@ -397,6 +415,20 @@ export async function resilientFetch(
   const proxies = isPost
     ? allProxies.filter(p => !p.includes('allorigins.win') && !p.includes('codetabs.com'))
     : allProxies
+
+  // For Stake.com requests, inject browser-mimicking headers if not already set
+  const isStake = targetUrl.includes('stake.com')
+  if (isStake && init.headers) {
+    const existing = init.headers as Record<string, string>
+    if (!existing['Origin']) existing['Origin'] = 'https://stake.com'
+    if (!existing['Referer']) existing['Referer'] = 'https://stake.com/'
+    if (!existing['User-Agent']) {
+      existing['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36'
+    }
+    if (!existing['Accept'] || existing['Accept'] === '*/*') {
+      existing['Accept'] = 'application/graphql+json, application/json'
+    }
+  }
 
   const errors: string[] = []
 

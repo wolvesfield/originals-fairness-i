@@ -84,4 +84,17 @@ export default defineConfig({
   ssr: {
     external: ['better-sqlite3']
   },
+  server: {
+    headers: {
+      // Required for SharedArrayBuffer support in Web Workers
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    }
+  },
+  preview: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    }
+  },
 });
