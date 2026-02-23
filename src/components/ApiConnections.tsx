@@ -44,7 +44,7 @@ function saveConfig(config: ApiConfig) {
 }
 
 const DEFAULT_HASHES_KEY = (import.meta.env.VITE_HASHES_API_KEY as string) || '94b5b9c73e8a71fd34f7e12abea2e919'
-const DEFAULT_CORS_PROXY = (import.meta.env.VITE_CORS_PROXY_URL as string) || 'https://fairness-cors-proxy.wolvesfield.workers.dev/?url='
+const DEFAULT_CORS_PROXY = (import.meta.env.VITE_CORS_PROXY_URL as string) || 'https://fairness-cors-proxy.farhan-097.workers.dev/?url='
 
 // In dev mode, use the Vite dev server proxy to bypass CORS without a worker
 export const IS_DEV = import.meta.env.DEV

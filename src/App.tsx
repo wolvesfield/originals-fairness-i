@@ -58,8 +58,10 @@ function App() {
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0)
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
     stakeToken: localStorage.getItem('stake_auth_token') || '',
+    stakeLockdownToken: localStorage.getItem('stake_lockdown_token') || '',
+    stakeCookie: localStorage.getItem('stake_cookie') || '',
     hashesApiKey: localStorage.getItem('hashes_api_key') || '',
-    corsProxy: localStorage.getItem('cors_proxy') || 'https://fairness-cors-proxy.wolvesfield.workers.dev/?url=',
+    corsProxy: localStorage.getItem('cors_proxy') || 'https://fairness-cors-proxy.farhan-097.workers.dev/?url=',
   })
 
   const totalCells = platform === 'roobet' ? 64 : 25

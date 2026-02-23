@@ -19,8 +19,12 @@ const ALLOWED_ORIGINS = [
   'https://wolvesfield.github.io',
   'https://arcanadraconi.github.io',
   'http://localhost:5173',
+  'http://localhost:5174',
   'http://localhost:3000',
+  'http://localhost:4173',
   'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'http://127.0.0.1:3000',
 ];
 
 // Browser-mimicking headers for Stake.com (from HAR capture of real Chrome session)
@@ -40,11 +44,13 @@ const STAKE_BROWSER_HEADERS = {
 function corsHeaders(origin) {
   const inList = ALLOWED_ORIGINS.includes(origin);
   const isGitHubPages = origin && (origin.endsWith('.github.io') || origin.includes('github.io'));
-  const allowedOrigin = inList || isGitHubPages ? origin : ALLOWED_ORIGINS[0];
+  const isLocalhost = origin && (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1'));
+  const allowedOrigin = (inList || isGitHubPages || isLocalhost) ? origin : ALLOWED_ORIGINS[0];
   return {
     'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, x-access-token, x-language, x-operation-name, x-lockdown-token, x-stake-cookie, Authorization, Accept, Origin, Referer',
+    'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Max-Age': '86400',
   };
 }
