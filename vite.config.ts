@@ -67,7 +67,7 @@ function auditApiPlugin(): PluginOption {
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/',
+  base: process.env.GITHUB_ACTIONS === 'true' ? '/originals-fairness-i/' : '/',
   plugins: [
     react(),
     tailwindcss(),
