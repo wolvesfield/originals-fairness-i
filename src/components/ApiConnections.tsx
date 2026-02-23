@@ -33,13 +33,21 @@ function loadConfig(): ApiConfig {
 
 function saveConfig(config: ApiConfig) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
+  // persist individual keys so other components can read them
+  if (config.stakeToken) localStorage.setItem('stake_auth_token', config.stakeToken)
+  if (config.hashesApiKey) localStorage.setItem('hashes_api_key', config.hashesApiKey)
+  if (config.corsProxy) localStorage.setItem('cors_proxy', config.corsProxy)
 }
+
+const DEFAULT_STAKE_TOKEN = 'cf3f4d5a42f40a19ad83c94c285826a8d62d003f24260e6aa46f732bb2f681a434bacc48441c27824ab6c434776736e9'
+const DEFAULT_HASHES_KEY = 'ff5b33e2ea497707f8aa0cb7e9f7b8e88c2f40f2552a9b61111ff48e304ec6519362d0fdc78c0e049f75b227b3c44eff'
+const DEFAULT_CORS_PROXY = 'https://corsproxy.io/?key=f02f2d8a&url='
 
 function defaultConfig(): ApiConfig {
   return {
-    stakeToken: localStorage.getItem('stake_auth_token') || '',
-    hashesApiKey: '',
-    corsProxy: 'https://corsproxy.io/?url=',
+    stakeToken: localStorage.getItem('stake_auth_token') || DEFAULT_STAKE_TOKEN,
+    hashesApiKey: localStorage.getItem('hashes_api_key') || DEFAULT_HASHES_KEY,
+    corsProxy: localStorage.getItem('cors_proxy') || DEFAULT_CORS_PROXY,
   }
 }
 
@@ -292,7 +300,7 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
             <Input
               value={config.corsProxy}
               onChange={e => updateConfig({ corsProxy: e.target.value })}
-              placeholder="https://corsproxy.io/?url="
+              placeholder="https://corsproxy.io/?key=YOUR_KEY&url="
               className="font-mono text-sm flex-1"
             />
             <Button onClick={testProxy} disabled={proxyStatus === 'testing'} className="whitespace-nowrap">
@@ -305,7 +313,7 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
           </div>
           <div className="flex flex-wrap gap-2">
             {[
-              { label: 'corsproxy.io', url: 'https://corsproxy.io/?url=' },
+              { label: 'corsproxy.io (keyed)', url: DEFAULT_CORS_PROXY },
               { label: 'allorigins', url: 'https://api.allorigins.win/raw?url=' },
               { label: 'No proxy (direct)', url: '' },
             ].map(preset => (
