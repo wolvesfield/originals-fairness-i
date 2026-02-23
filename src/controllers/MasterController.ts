@@ -264,26 +264,29 @@ export class MasterController {
 
     // PROBABILISTIC MODE — Statistical analysis (honest about limitations)
     const heatMap = this.cva.generateDensityMap(totalCells, mineCount, `${clientSeed}:${nonce}`);
-    const deadZones = this.cva.identifyDeadZones(heatMap);
 
-    // Pick 5-7 cells with HIGHEST mine probability as risk tiles
+    // Risk tiles = top mineCount tiles by probability (matches actual mine count)
     const sortedByRisk = heatMap
       .map((prob, idx) => ({ idx, prob }))
       .sort((a, b) => b.prob - a.prob);
-    const riskTiles = sortedByRisk.slice(0, Math.min(7, Math.max(5, mineCount + 2))).map(t => t.idx);
-    const safestTiles = sortedByRisk.slice(-5).map(t => t.idx);
+    const riskTiles = sortedByRisk.slice(0, mineCount).map(t => t.idx);
+    const safeCount = totalCells - mineCount;
+    const safestTiles = sortedByRisk.slice(-safeCount).map(t => t.idx);
 
     // Run analysis modes for transparency reporting
     const modeResults = this.runMultiModeAnalysis(
       serverSeedOrHash, clientSeed, nonce, mineCount, totalCells, heatMap
     );
 
-    // Honest confidence: the mathematical base rate is the REAL number
-    // Per-tile safety = (totalCells - mineCount) / totalCells
-    const perTileSafe = (totalCells - mineCount) / totalCells;
-    // For 5 target tiles with 3/25 mines → ~(22/25)^5 ≈ 65.6% (simplified)
-    const allTargetSafe = Math.pow(perTileSafe, targetPattern.length);
-    const confidence = allTargetSafe; // This IS the honest probability
+    // Honest confidence: exact combinatorial probability (hypergeometric)
+    // P(all k target tiles safe) = C(totalCells-mineCount, k) / C(totalCells, k)
+    // This is the TRUE probability without replacement
+    const k = targetPattern.length;
+    let confidence = 1;
+    for (let i = 0; i < k; i++) {
+      confidence *= (totalCells - mineCount - i) / (totalCells - i);
+    }
+    confidence = Math.max(0, Math.min(1, confidence));
 
     const hedgeFactor = this.hedge.calculateHedgeFactor(1);
     const alloc = this.allocation.calculateOptimalAllocation(confidence, 2.0, bankroll) * hedgeFactor;
@@ -296,7 +299,7 @@ export class MasterController {
       allocation: alloc,
       heatMap,
       modeResults,
-      riskTiles // NEW: expose risk tiles for the UI
+      riskTiles // Expose risk tiles matching mine count for the UI
     } as GameRoundResult;
   }
 
@@ -368,11 +371,17 @@ export class MasterController {
     });
 
     // ── Mode 5: Mathematical Base Rate ──
-    const fiveTargetProb = Math.pow(perTileSafe, 5); // Probability 5 random tiles are all safe
+    // Exact combinatorial probability (hypergeometric, without replacement)
+    // P(all 5 tiles safe) = C(safe, 5) / C(total, 5)
+    let fiveTargetProb = 1;
+    for (let i = 0; i < 5; i++) {
+      fiveTargetProb *= (totalCells - mineCount - i) / (totalCells - i);
+    }
+    fiveTargetProb = Math.max(0, fiveTargetProb);
     results.push({
       name: 'Base Rate Math',
       confidence: fiveTargetProb,
-      description: `Each tile: ${(perTileSafe * 100).toFixed(1)}% safe. Picking 5 safe tiles: ${(fiveTargetProb * 100).toFixed(1)}% probability. This is the TRUE mathematical expectation for ${mineCount} mines in ${totalCells} cells.`,
+      description: `Each tile: ${(perTileSafe * 100).toFixed(1)}% safe. Picking 5 safe tiles: ${(fiveTargetProb * 100).toFixed(1)}% probability. This is the TRUE combinatorial expectation for ${mineCount} mines in ${totalCells} cells (without replacement).`,
       details: {
         baseRate,
         perTileSafety: perTileSafe,

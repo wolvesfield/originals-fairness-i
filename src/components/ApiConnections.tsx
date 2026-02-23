@@ -41,7 +41,7 @@ function saveConfig(config: ApiConfig) {
 
 const DEFAULT_STAKE_TOKEN = 'cf3f4d5a42f40a19ad83c94c285826a8d62d003f24260e6aa46f732bb2f681a434bacc48441c27824ab6c434776736e9'
 const DEFAULT_HASHES_KEY = 'ff5b33e2ea497707f8aa0cb7e9f7b8e88c2f40f2552a9b61111ff48e304ec6519362d0fdc78c0e049f75b227b3c44eff'
-const DEFAULT_CORS_PROXY = 'https://corsproxy.io/?key=f02f2d8a&url='
+const DEFAULT_CORS_PROXY = 'https://corsproxy.io/?'
 
 function defaultConfig(): ApiConfig {
   return {
@@ -114,7 +114,15 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
         }
       )
 
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
+      if (!res.ok) {
+        let body = ''
+        try { body = await res.text() } catch {}
+        const isCF = /cloudflare|cf-|just a moment/i.test(body)
+        if (res.status === 403 && isCF) {
+          throw new Error('403 Cloudflare block — deploy a Cloudflare Worker proxy (see worker/cors-proxy-worker.js)')
+        }
+        throw new Error(`HTTP ${res.status}${isCF ? ' (Cloudflare)' : ''} ${res.statusText}`)
+      }
 
       const data = await res.json()
       if (data.errors?.length) throw new Error(data.errors[0].message)
@@ -316,8 +324,9 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
           </div>
           <div className="flex flex-wrap gap-2">
             {[
-              { label: 'corsproxy.io (keyed)', url: DEFAULT_CORS_PROXY },
-              { label: 'allorigins', url: 'https://api.allorigins.win/raw?url=' },
+              { label: 'corsproxy.io', url: 'https://corsproxy.io/?' },
+              { label: 'corsproxy.io (keyed)', url: 'https://corsproxy.io/?key=f02f2d8a&url=' },
+              { label: 'thingproxy', url: 'https://thingproxy.freeboard.io/fetch/' },
               { label: 'No proxy (direct)', url: '' },
             ].map(preset => (
               <Button
@@ -343,17 +352,26 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
 /* ─── utility ─── */
 
 /**
- * Build a proxied URL. If proxyPrefix ends with `&url=` or `?url=`,
- * the target is appended URL-encoded. Otherwise it is appended raw.
+ * Build a proxied URL. Different proxies expect different formats:
+ * - corsproxy.io: raw URL after `?` (NOT encoded)
+ * - allorigins/codetabs: encoded URL after `url=` or `quest=`
+ * - Custom workers: raw URL appended
  */
 export function buildProxiedUrl(targetUrl: string, proxyPrefix: string): string {
   if (!proxyPrefix) return targetUrl
-  // If prefix already ends with "url=" just encode the target
-  if (proxyPrefix.endsWith('url=')) {
+
+  // corsproxy.io expects raw (non-encoded) URLs
+  if (proxyPrefix.includes('corsproxy.io')) {
+    return proxyPrefix + targetUrl
+  }
+
+  // Proxies that end with url= or quest= expect encoded URLs
+  if (proxyPrefix.endsWith('url=') || proxyPrefix.endsWith('quest=')) {
     return proxyPrefix + encodeURIComponent(targetUrl)
   }
-  // Otherwise treat as a simple prefix (e.g. custom worker: https://myworker.workers.dev/)
-  return proxyPrefix + encodeURIComponent(targetUrl)
+
+  // Custom workers / other proxies: append raw URL
+  return proxyPrefix + targetUrl
 }
 
 /**
@@ -361,9 +379,10 @@ export function buildProxiedUrl(targetUrl: string, proxyPrefix: string): string 
  * error, falls back to alternative proxies automatically.
  */
 const FALLBACK_PROXIES = [
+  'https://corsproxy.io/?',
   'https://corsproxy.io/?key=f02f2d8a&url=',
-  'https://api.allorigins.win/raw?url=',
-  'https://api.codetabs.com/v1/proxy?quest=',
+  'https://proxy.cors.sh/',
+  'https://thingproxy.freeboard.io/fetch/',
 ]
 
 export async function resilientFetch(
@@ -371,19 +390,29 @@ export async function resilientFetch(
   primaryProxy: string,
   init: RequestInit = {}
 ): Promise<Response> {
-  const proxies = [primaryProxy, ...FALLBACK_PROXIES.filter(p => p !== primaryProxy)]
+  // Build a list of proxies: primary first, then fallbacks (deduped)
+  const allProxies = [primaryProxy, ...FALLBACK_PROXIES.filter(p => p !== primaryProxy)]
+  // Only use proxies that can handle POST requests (skip GET-only proxies for POST)
+  const isPost = init.method?.toUpperCase() === 'POST'
+  const proxies = isPost
+    ? allProxies.filter(p => !p.includes('allorigins.win') && !p.includes('codetabs.com'))
+    : allProxies
 
-  let lastError: Error | null = null
+  const errors: string[] = []
 
   for (const proxy of proxies) {
     try {
       const url = buildProxiedUrl(targetUrl, proxy)
       const res = await fetch(url, { ...init, signal: AbortSignal.timeout(15000) })
-      if (res.ok || res.status < 500) return res // even 4xx from Stake is useful info
-      // 5xx from proxy → try next
-      lastError = new Error(`Proxy ${proxy.slice(0, 40)}… returned ${res.status}`)
+      
+      // If we got a real response (even 4xx), return it — the proxy worked
+      if (res.ok || (res.status >= 400 && res.status < 500)) {
+        return res
+      }
+      // 5xx from proxy means proxy itself failed
+      errors.push(`${proxy.slice(0, 35)}… → HTTP ${res.status}`)
     } catch (err: any) {
-      lastError = err
+      errors.push(`${proxy.slice(0, 35)}… → ${err.message?.slice(0, 50) || 'Network error'}`)
       continue
     }
   }
@@ -393,6 +422,8 @@ export async function resilientFetch(
     const res = await fetch(targetUrl, { ...init, signal: AbortSignal.timeout(10000) })
     return res
   } catch {
-    throw lastError ?? new Error('All CORS proxies failed and direct fetch blocked')
+    throw new Error(
+      `All ${proxies.length} proxies failed. Errors:\n${errors.join('\n')}\n\nDeploy the Cloudflare Worker from worker/ folder for reliable access.`
+    )
   }
 }

@@ -15,6 +15,8 @@ interface ServerSeedRevealProps {
   analysisResult: GameRoundResult | null
   onAnalyze: () => void
   onManualSeedApply?: (seed: string) => void
+  mineCount?: number
+  totalCells?: number
 }
 
 export default function ServerSeedReveal({
@@ -23,7 +25,9 @@ export default function ServerSeedReveal({
   analysisState,
   analysisResult,
   onAnalyze,
-  onManualSeedApply
+  onManualSeedApply,
+  mineCount = 3,
+  totalCells = 25
 }: ServerSeedRevealProps) {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [manualSeed, setManualSeed] = useState('')
@@ -179,7 +183,7 @@ export default function ServerSeedReveal({
             <div className="grid grid-cols-3 gap-3">
               <div className="p-3 bg-secondary rounded-md text-center">
                 <p className="text-xs text-muted-foreground">
-                  {isDeterministic ? 'Verification Confidence' : 'Per-Tile Safety Rate'}
+                  {isDeterministic ? 'Verification Confidence' : `Safety Rate (${mineCount} mines / ${totalCells} cells)`}
                 </p>
                 <p className={`text-lg font-bold ${getConfidenceColor(confidence)}`}>
                   {(confidence * 100).toFixed(1)}%

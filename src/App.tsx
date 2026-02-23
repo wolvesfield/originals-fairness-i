@@ -59,7 +59,7 @@ function App() {
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
     stakeToken: localStorage.getItem('stake_auth_token') || 'cf3f4d5a42f40a19ad83c94c285826a8d62d003f24260e6aa46f732bb2f681a434bacc48441c27824ab6c434776736e9',
     hashesApiKey: localStorage.getItem('hashes_api_key') || 'ff5b33e2ea497707f8aa0cb7e9f7b8e88c2f40f2552a9b61111ff48e304ec6519362d0fdc78c0e049f75b227b3c44eff',
-    corsProxy: localStorage.getItem('cors_proxy') || 'https://corsproxy.io/?key=f02f2d8a&url=',
+    corsProxy: localStorage.getItem('cors_proxy') || 'https://corsproxy.io/?',
   })
 
   const totalCells = platform === 'roobet' ? 64 : 25
@@ -161,10 +161,13 @@ function App() {
         }
       }
 
-      // Without revealed seed: show mathematical base rate only
-      const perTileSafe = 1 - (mineCount / totalCells)
-      // Probability all target tiles are safe = (safe/total)^targetCount (simplified)
-      const allSafeProb = Math.pow(perTileSafe, targetTiles.length)
+      // Without revealed seed: show exact combinatorial base rate
+      // P(all k tiles safe) = Product((totalCells - mineCount - i) / (totalCells - i)) for i=0..k-1
+      let allSafeProb = 1
+      for (let j = 0; j < targetTiles.length; j++) {
+        allSafeProb *= (totalCells - mineCount - j) / (totalCells - j)
+      }
+      allSafeProb = Math.max(0, allSafeProb)
       return {
         nonce: predictionNonce,
         confidence: allSafeProb,
@@ -287,6 +290,8 @@ function App() {
           analysisResult={analysisResult}
           onAnalyze={() => handleAnalyze()}
           onManualSeedApply={handleManualSeedApply}
+          mineCount={mineCount}
+          totalCells={totalCells}
         />
 
         {/* API Connections Manager */}

@@ -39,6 +39,15 @@ export default function MinesGame({
   const totalCells = gridSize * gridSize
   const cva = useMemo(() => new ClusterVarianceAnalyzer(), [])
 
+  // Reset verified state when core inputs change
+  useEffect(() => {
+    setVerifiedMines([])
+    setIsVerified(false)
+    setProbabilityMap([])
+    setRiskTiles([])
+    setSafestTiles([])
+  }, [serverSeedHash, clientSeed, nonce, mineCount])
+
   // Auto-populate from backend analysis results
   useEffect(() => {
     if (!analysisResult) return
@@ -61,13 +70,14 @@ export default function MinesGame({
       if (analysisResult.mode === 'PROBABILISTIC') {
         setVerifiedMines([])
         setIsVerified(false)
-        // Calculate risk tiles from heatmap
+        // Calculate risk tiles = exactly mineCount tiles with highest probability
         const sorted = analysisResult.heatMap
           .map((prob: number, idx: number) => ({ idx, prob }))
           .sort((a: { prob: number }, b: { prob: number }) => b.prob - a.prob)
-        const riskCount = Math.min(7, Math.max(5, mineCount + 2))
+        const riskCount = mineCount
+        const safeCount = totalCells - mineCount
         setRiskTiles(sorted.slice(0, riskCount).map((t: { idx: number }) => t.idx))
-        setSafestTiles(sorted.slice(-5).map((t: { idx: number }) => t.idx))
+        setSafestTiles(sorted.slice(-safeCount).map((t: { idx: number }) => t.idx))
       }
     }
   }, [analysisResult, nonce, totalCells, mineCount])
@@ -123,16 +133,17 @@ export default function MinesGame({
     setIsVerified(false)
     setVerifiedMines([])
 
-    // Calculate risk tiles (highest mine probability)
+    // Calculate risk tiles = exactly mineCount (the most likely tiles to have mines)
     const sorted = combinedMap
       .map((prob: number, idx: number) => ({ idx, prob }))
       .sort((a: { prob: number }, b: { prob: number }) => b.prob - a.prob)
-    const riskCount = Math.min(7, Math.max(5, mineCount + 2))
+    const riskCount = mineCount
+    const safeCount = totalCells - mineCount
     setRiskTiles(sorted.slice(0, riskCount).map((t: { idx: number }) => t.idx))
-    setSafestTiles(sorted.slice(-5).map((t: { idx: number }) => t.idx))
+    setSafestTiles(sorted.slice(-safeCount).map((t: { idx: number }) => t.idx))
 
     toast.success(
-      `Probability analysis complete — ${riskCount} risk tiles and 5 safest tiles identified`
+      `Probability analysis complete — ${riskCount} risk tiles and ${safeCount} safer tiles identified (${mineCount} mines in ${totalCells} cells)`
     )
   }
 

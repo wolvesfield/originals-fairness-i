@@ -32,7 +32,7 @@ interface StakeMyBetsProps {
 
 const DEFAULT_STAKE_TOKEN = 'cf3f4d5a42f40a19ad83c94c285826a8d62d003f24260e6aa46f732bb2f681a434bacc48441c27824ab6c434776736e9'
 
-export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://corsproxy.io/?key=f02f2d8a&url=' }: StakeMyBetsProps) {
+export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://corsproxy.io/?' }: StakeMyBetsProps) {
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('stake_auth_token') || DEFAULT_STAKE_TOKEN)
   const [isLoading, setIsLoading] = useState(false)
   const [betHistory, setBetHistory] = useState<StakeBet[]>([])
@@ -68,12 +68,27 @@ export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://corspro
       })
     } catch (fetchErr: any) {
       throw new Error(
-        'All proxy routes failed — go to "API Connections" → Proxy tab. For reliable access, deploy the Cloudflare Worker from the worker/ folder.'
+        `Network error: ${fetchErr.message || 'All proxy routes failed'}. Go to "API Connections" → Proxy tab and try different proxies, or deploy the Cloudflare Worker from worker/ folder.`
+      )
+    }
+
+    if (response.status === 403) {
+      // Read body for details
+      let body = ''
+      try { body = await response.text() } catch {}
+      const isCloudflare = body.includes('cloudflare') || body.includes('cf-') || body.includes('Just a moment')
+      if (isCloudflare) {
+        throw new Error(
+          '403 Forbidden — Stake.com\'s Cloudflare protection is blocking the proxy. Deploy the Cloudflare Worker from worker/ folder for direct API access, or update your auth token.'
+        )
+      }
+      throw new Error(
+        `403 Forbidden — Your auth token may be expired. Get a fresh token from Stake.com DevTools (F12 → Network → x-access-token header).`
       )
     }
 
     if (!response.ok) {
-      throw new Error(`Stake API: ${response.status} ${response.statusText}`)
+      throw new Error(`Stake API returned HTTP ${response.status}: ${response.statusText}`)
     }
 
     const payload = await response.json()
