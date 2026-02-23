@@ -41,6 +41,35 @@ export class ClusterVarianceAnalyzer {
   }
 
   /**
+   * Generate a RELATIVE deviation map that shows how far each tile's
+   * observed probability deviates from the expected base rate.
+   * 
+   * Returns values where:
+   *   0.0 = tile hit rate equals base rate (average)
+   *   positive = tile has MORE mines than expected (more dangerous)
+   *   negative = tile has FEWER mines than expected (safer)
+   * 
+   * This is much more meaningful for display than raw probabilities
+   * which are all clustered around the base rate.
+   */
+  generateDeviationMap(totalCells: number, mineCount: number, baseSeed: string): {
+    rawMap: number[];
+    deviationMap: number[];
+    baseRate: number;
+    maxDeviation: number;
+    minDeviation: number;
+  } {
+    const rawMap = this.generateDensityMap(totalCells, mineCount, baseSeed);
+    const baseRate = mineCount / totalCells;
+
+    const deviationMap = rawMap.map(prob => prob - baseRate);
+    const maxDeviation = Math.max(...deviationMap);
+    const minDeviation = Math.min(...deviationMap);
+
+    return { rawMap, deviationMap, baseRate, maxDeviation, minDeviation };
+  }
+
+  /**
    * Identify cells with mine probability below the threshold ("dead zones" = safest tiles).
    * With correct Fisher-Yates, for 3 mines in 25 cells, expected probability per cell
    * is 3/25 = 0.12 (12%). So threshold of 0.15 catches cells near or below average.
@@ -62,6 +91,25 @@ export class ClusterVarianceAnalyzer {
       .sort((a, b) => b.safePercent - a.safePercent)
       .slice(0, count);
   }
+
+  /**
+   * Compute the standard deviation of the heatmap to measure
+   * how much the distribution deviates from uniform.
+   */
+  computeDistributionStats(heatMap: number[]): {
+    mean: number;
+    stdDev: number;
+    coeffOfVariation: number;
+    isUniform: boolean;
+  } {
+    const mean = heatMap.reduce((a, b) => a + b, 0) / heatMap.length;
+    const variance = heatMap.reduce((sum, v) => sum + (v - mean) ** 2, 0) / heatMap.length;
+    const stdDev = Math.sqrt(variance);
+    const coeffOfVariation = mean > 0 ? stdDev / mean : 0;
+    
+    // Distribution is "uniform" if coefficient of variation is small
+    const isUniform = coeffOfVariation < 0.05;
+
+    return { mean, stdDev, coeffOfVariation, isUniform };
+  }
 }
-
-

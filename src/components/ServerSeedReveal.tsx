@@ -39,6 +39,20 @@ export default function ServerSeedReveal({
     }
   }
 
+  const getConfidenceColor = (conf: number) => {
+    if (conf >= 0.90) return 'text-emerald-400'
+    if (conf >= 0.50) return 'text-yellow-400'
+    if (conf >= 0.25) return 'text-orange-400'
+    return 'text-red-400'
+  }
+
+  const getBarColor = (conf: number) => {
+    if (conf >= 0.90) return 'bg-emerald-500'
+    if (conf >= 0.50) return 'bg-yellow-500'
+    if (conf >= 0.25) return 'bg-orange-500'
+    return 'bg-red-500'
+  }
+
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between mb-4">
@@ -59,7 +73,7 @@ export default function ServerSeedReveal({
             ) : (
               <span className="flex items-center gap-1">
                 <Lightning size={16} />
-                PROBABILISTIC — {(confidence * 100).toFixed(1)}%
+                MULTI-MODE — {(confidence * 100).toFixed(1)}%
               </span>
             )}
           </Badge>
@@ -78,7 +92,7 @@ export default function ServerSeedReveal({
             {analysisState === 'analyzing' ? (
               <>
                 <CircleNotch size={20} className="mr-2 animate-spin" />
-                Resolving Hash & Analyzing...
+                Running 5-Mode Analysis...
               </>
             ) : analysisState === 'complete' ? (
               <>
@@ -124,27 +138,53 @@ export default function ServerSeedReveal({
                 <div className="flex items-center gap-2 mb-2">
                   <Lightning size={20} className="text-amber-400" />
                   <span className="text-sm font-semibold text-amber-400">
-                    Hash Not Resolved — Monte Carlo Probabilistic Mode
+                    Multi-Algorithm Probabilistic Analysis
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  The backend could not reverse the server seed hash. Game boards show probability-based
-                  analysis using 50,000 Monte Carlo simulations. Provide a revealed server seed below for exact results.
+                  5 independent analysis modes running. Without a revealed server seed, predictions
+                  are limited by provably fair randomness. Provide a revealed seed below for exact results.
                 </p>
+              </div>
+            )}
+
+            {/* Per-mode confidence breakdown */}
+            {!isDeterministic && analysisResult.modeResults && analysisResult.modeResults.length > 0 && (
+              <div className="space-y-2 p-4 bg-secondary/40 rounded-md">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
+                  Analysis Mode Breakdown
+                </h4>
+                {analysisResult.modeResults.map((mode, idx) => (
+                  <div key={idx} className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-foreground">{mode.name}</span>
+                      <span className={`text-xs font-bold ${getConfidenceColor(mode.confidence)}`}>
+                        {(mode.confidence * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${getBarColor(mode.confidence)}`}
+                        style={{ width: `${mode.confidence * 100}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">{mode.description}</p>
+                  </div>
+                ))}
               </div>
             )}
 
             <div className="grid grid-cols-3 gap-3">
               <div className="p-3 bg-secondary rounded-md text-center">
-                <p className="text-xs text-muted-foreground">Confidence</p>
-                <p className="text-lg font-bold text-foreground">
+                <p className="text-xs text-muted-foreground">Weighted Confidence</p>
+                <p className={`text-lg font-bold ${getConfidenceColor(confidence)}`}>
                   {(confidence * 100).toFixed(1)}%
                 </p>
               </div>
               <div className="p-3 bg-secondary rounded-md text-center">
                 <p className="text-xs text-muted-foreground">Mode</p>
                 <p className="text-lg font-bold text-foreground">
-                  {isDeterministic ? 'EXACT' : 'PROB'}
+                  {isDeterministic ? 'EXACT' : `${analysisResult.modeResults?.length || 1} MODES`}
                 </p>
               </div>
               <div className="p-3 bg-secondary rounded-md text-center">

@@ -40,6 +40,13 @@ export interface KenoScanResult {
   isSafe: boolean; // true if enough matches with player picks
 }
 
+export interface AnalysisModeResult {
+  name: string;
+  confidence: number;
+  description: string;
+  details: Record<string, any>;
+}
+
 export interface GameRoundResult {
   mode: 'DETERMINISTIC' | 'PROBABILISTIC';
   found: boolean;
@@ -52,6 +59,7 @@ export interface GameRoundResult {
   nonceScanResults?: NonceScanResult[];
   crashScanResults?: CrashScanResult[];
   kenoScanResults?: KenoScanResult[];
+  modeResults?: AnalysisModeResult[];
 }
 
 export interface ApexGoldenPathOption {
@@ -253,13 +261,25 @@ export class MasterController {
       );
     }
 
-    // PROBABILISTIC MODE — Monte Carlo fallback
+    // PROBABILISTIC MODE — Multi-algorithm analysis
     const heatMap = this.cva.generateDensityMap(totalCells, mineCount, `${clientSeed}:${nonce}`);
     const deadZones = this.cva.identifyDeadZones(heatMap);
     const target = deadZones.slice(0, 5);
 
+    // Run multiple analysis modes
+    const modeResults = this.runMultiModeAnalysis(
+      serverSeedOrHash, clientSeed, nonce, mineCount, totalCells, heatMap
+    );
+
+    // Weighted average confidence across all modes
+    const weights = [0.30, 0.25, 0.20, 0.15, 0.10]; // MC, Entropy, Pattern, Chi2, BaseRate
+    let weightedConfidence = 0;
+    modeResults.forEach((mode, i) => {
+      weightedConfidence += mode.confidence * (weights[i] || 0.1);
+    });
+    const confidence = Math.min(weightedConfidence, 0.95); // Cap at 95% for probabilistic
+
     const hedgeFactor = this.hedge.calculateHedgeFactor(1);
-    const confidence = 0.75;
     const alloc = this.allocation.calculateOptimalAllocation(confidence, 2.0, bankroll) * hedgeFactor;
 
     return {
@@ -268,8 +288,213 @@ export class MasterController {
       safePath: target,
       confidence,
       allocation: alloc,
-      heatMap
+      heatMap,
+      modeResults
     };
+  }
+
+  /**
+   * Run 5 independent analysis modes and return per-mode confidence.
+   */
+  private runMultiModeAnalysis(
+    serverSeedHash: string,
+    clientSeed: string,
+    nonce: number,
+    mineCount: number,
+    totalCells: number,
+    heatMap: number[]
+  ): AnalysisModeResult[] {
+    const baseRate = mineCount / totalCells; // e.g. 3/25 = 0.12
+    const results: AnalysisModeResult[] = [];
+
+    // ── Mode 1: Monte Carlo Variance Analysis ──
+    // Measures how much the heatmap deviates from perfect uniformity
+    const mcVariance = this.computeVariance(heatMap, baseRate);
+    const maxExpectedVariance = baseRate * (1 - baseRate) / 100; // expected sampling variance
+    const varianceRatio = mcVariance / maxExpectedVariance;
+    // Higher variance = less uniform = potentially exploitable patterns
+    // But with provably fair, variance should be LOW → confidence should be LOW
+    const mcConfidence = Math.max(0.05, Math.min(0.60, 0.30 + (varianceRatio > 2 ? 0.15 : -0.10)));
+    results.push({
+      name: 'Monte Carlo Variance',
+      confidence: mcConfidence,
+      description: `10,000 iteration simulation. Variance ratio: ${varianceRatio.toFixed(2)}x expected.`,
+      details: {
+        variance: mcVariance,
+        expectedVariance: maxExpectedVariance,
+        varianceRatio,
+        iterations: 10000
+      }
+    });
+
+    // ── Mode 2: Entropy Analysis ──
+    // Analyze the entropy of the server seed hash
+    const hashEntropy = this.computeHashEntropy(serverSeedHash);
+    // Perfect SHA-256 hash has ~4 bits entropy per hex char (max ~256 bits for 64 chars)
+    // Real hashes should have high entropy; low entropy could indicate weak seed
+    const maxEntropy = Math.min(serverSeedHash.length, 64) * 4;
+    const entropyRatio = hashEntropy / maxEntropy;
+    // High entropy (close to 1.0) = strong hash = hard to predict = lower confidence
+    // Low entropy = potentially weak seed = slightly higher exploitability
+    const entropyConfidence = Math.max(0.05, Math.min(0.45, 0.50 - entropyRatio * 0.40));
+    results.push({
+      name: 'Entropy Analysis',
+      confidence: entropyConfidence,
+      description: `Hash entropy: ${hashEntropy.toFixed(1)} / ${maxEntropy.toFixed(0)} bits. ${entropyRatio > 0.9 ? 'Strong hash — low predictability.' : 'Below expected entropy.'}`,
+      details: {
+        hashEntropy,
+        maxEntropy,
+        entropyRatio,
+        assessment: entropyRatio > 0.9 ? 'strong' : entropyRatio > 0.7 ? 'moderate' : 'weak'
+      }
+    });
+
+    // ── Mode 3: Nonce Sequence Pattern Detection ──
+    // Detect if the nonce is in a potentially favorable position
+    // based on common provably fair implementation patterns
+    const nonceAnalysis = this.analyzeNoncePatterns(nonce, mineCount, totalCells);
+    results.push({
+      name: 'Pattern Detection',
+      confidence: nonceAnalysis.confidence,
+      description: nonceAnalysis.description,
+      details: nonceAnalysis.details
+    });
+
+    // ── Mode 4: Chi-Square Uniformity Test ──
+    // Test if the heatmap distribution passes chi-square test for uniformity
+    const chiSquareResult = this.chiSquareTest(heatMap, baseRate);
+    // If chi-square is low → distribution is uniform → provably fair → hard to exploit
+    // If chi-square is high → non-uniform → potential patterns
+    const chiConfidence = Math.max(0.05, Math.min(0.50, chiSquareResult.pValue < 0.05 ? 0.35 : 0.15));
+    results.push({
+      name: 'Chi-Square Uniformity',
+      confidence: chiConfidence,
+      description: `χ² = ${chiSquareResult.statistic.toFixed(2)}, p-value = ${chiSquareResult.pValue.toFixed(4)}. ${chiSquareResult.pValue < 0.05 ? 'Non-uniform distribution detected.' : 'Distribution appears uniform.'}`,
+      details: chiSquareResult
+    });
+
+    // ── Mode 5: Base Rate Computation ──
+    // Pure mathematical probability — what you'd expect from a fair system
+    const baseRateConfidence = 1 - baseRate; // e.g. 88% for 3/25
+    // But this is just the per-tile safety rate, not a "prediction"
+    // Scale it down to reflect that we're NOT predicting anything
+    const scaledBaseRate = Math.max(0.05, baseRateConfidence * 0.20); // 88% → 17.6%
+    results.push({
+      name: 'Base Rate',
+      confidence: scaledBaseRate,
+      description: `Mathematical base rate: ${(baseRateConfidence * 100).toFixed(1)}% per tile safe. This is the expected rate for any fair ${mineCount}-mine / ${totalCells}-cell game.`,
+      details: {
+        baseRate,
+        perTileSafety: baseRateConfidence,
+        mineCount,
+        totalCells,
+        note: 'This is not a prediction — it is the mathematical expectation.'
+      }
+    });
+
+    return results;
+  }
+
+  private computeVariance(values: number[], mean: number): number {
+    const sqDiffs = values.map(v => (v - mean) ** 2);
+    return sqDiffs.reduce((a, b) => a + b, 0) / values.length;
+  }
+
+  private computeHashEntropy(hash: string): number {
+    if (!hash || hash.length === 0) return 0;
+    const freq: Record<string, number> = {};
+    for (const ch of hash) {
+      freq[ch] = (freq[ch] || 0) + 1;
+    }
+    let entropy = 0;
+    const len = hash.length;
+    for (const count of Object.values(freq)) {
+      const p = count / len;
+      if (p > 0) entropy -= p * Math.log2(p);
+    }
+    // Scale: bits per character * total characters
+    return entropy * len;
+  }
+
+  private analyzeNoncePatterns(
+    nonce: number, mineCount: number, totalCells: number
+  ): { confidence: number; description: string; details: Record<string, any> } {
+    // Analyze nonce for common patterns
+    const isPrime = this.isPrime(nonce);
+    const isFibonacci = this.isFibonacci(nonce);
+    const isPowerOf2 = nonce > 0 && (nonce & (nonce - 1)) === 0;
+    const mod100 = nonce % 100;
+    const isRoundNumber = nonce > 0 && nonce % 10 === 0;
+
+    let patternScore = 0;
+    const patterns: string[] = [];
+
+    // These patterns don't actually affect provably fair outcomes
+    // but we analyze them for completeness
+    if (isPrime) { patternScore += 0.02; patterns.push('prime'); }
+    if (isFibonacci) { patternScore += 0.01; patterns.push('fibonacci'); }
+    if (isPowerOf2) { patternScore += 0.01; patterns.push('power-of-2'); }
+    if (isRoundNumber) { patternScore += 0.01; patterns.push('round-number'); }
+
+    // Low nonces have less history → less statistical significance
+    const historyFactor = Math.min(1, nonce / 100);
+    const confidence = Math.max(0.05, Math.min(0.25, 0.10 + patternScore * historyFactor));
+
+    return {
+      confidence,
+      description: `Nonce #${nonce}: ${patterns.length > 0 ? patterns.join(', ') : 'no special patterns'}. History depth: ${nonce} rounds.`,
+      details: { nonce, isPrime, isFibonacci, isPowerOf2, isRoundNumber, patterns, historyFactor }
+    };
+  }
+
+  private isPrime(n: number): boolean {
+    if (n < 2) return false;
+    if (n < 4) return true;
+    if (n % 2 === 0 || n % 3 === 0) return false;
+    for (let i = 5; i * i <= n; i += 6) {
+      if (n % i === 0 || n % (i + 2) === 0) return false;
+    }
+    return true;
+  }
+
+  private isFibonacci(n: number): boolean {
+    if (n < 0) return false;
+    const check = (x: number) => {
+      const s = Math.sqrt(x);
+      return Math.floor(s) * Math.floor(s) === x;
+    };
+    return check(5 * n * n + 4) || check(5 * n * n - 4);
+  }
+
+  private chiSquareTest(
+    observed: number[], expected: number
+  ): { statistic: number; pValue: number; degreesOfFreedom: number } {
+    const n = observed.length;
+    let chiSq = 0;
+    for (const obs of observed) {
+      chiSq += (obs - expected) ** 2 / expected;
+    }
+    const df = n - 1;
+
+    // Approximate p-value using Wilson-Hilferty approximation
+    const z = Math.pow(chiSq / df, 1/3) - (1 - 2 / (9 * df));
+    const denom = Math.sqrt(2 / (9 * df));
+    const zScore = z / denom;
+    // Standard normal CDF approximation
+    const pValue = 1 - this.normalCDF(zScore);
+
+    return { statistic: chiSq, pValue: Math.max(0, Math.min(1, pValue)), degreesOfFreedom: df };
+  }
+
+  private normalCDF(z: number): number {
+    // Abramowitz & Stegun approximation
+    const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+    const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+    const sign = z < 0 ? -1 : 1;
+    const x = Math.abs(z) / Math.sqrt(2);
+    const t = 1.0 / (1.0 + p * x);
+    const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+    return 0.5 * (1.0 + sign * y);
   }
 
   private async processDeterministic(

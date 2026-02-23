@@ -21,7 +21,7 @@ import { GoldPathHUD } from '@/components/GoldPathHUD'
 import { FutureChainSidebar } from '@/components/FutureChainSidebar'
 import { MinesGrid } from '@/components/MinesGrid'
 import { MasterController } from '@/controllers/MasterController'
-import type { GameRoundResult, ApexScanResult } from '@/controllers/MasterController'
+import type { GameRoundResult, ApexScanResult, AnalysisModeResult } from '@/controllers/MasterController'
 import { generateMinePositions } from '@/utils/fairnessEngine'
 import { addSeedHistoryEntry } from '@/db/browserDb'
 
@@ -66,6 +66,7 @@ function App() {
   const targetTiles = platform === 'roobet'
     ? Array.from({ length: 16 }, (_, i) => i)
     : [0, 1, 2, 3, 4]
+  const probabilisticHeatmapReady = (heatMap ?? []).some((v: number) => v > 0)
 
   const handleVerify = (game: GameType) => {
     const result: VerificationResult = {
@@ -159,10 +160,14 @@ function App() {
         }
       }
 
+      // Without revealed seed: show mathematical base rate only
+      const perTileSafe = 1 - (mineCount / totalCells)
+      // Probability all target tiles are safe = (safe/total)^targetCount (simplified)
+      const allSafeProb = Math.pow(perTileSafe, targetTiles.length)
       return {
         nonce: predictionNonce,
-        confidence: 0,
-        isGold: false
+        confidence: allSafeProb,
+        isGold: false // Cannot determine without seed
       }
     })
 
@@ -435,23 +440,38 @@ function App() {
                           safeTiles={apexResult.options[selectedApexOption]?.safeTiles || []}
                           gridSize={gridSize}
                           mineTiles={apexResult.options[selectedApexOption]?.mines || []}
+                          mineCount={mineCount}
                         />
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <MinesGrid
-                        heatMap={heatMap ?? new Array(totalCells).fill(0)}
-                        isCracked={hashStatus === 'CRACKED'}
-                        safeTiles={scannerResult?.safePath || []}
-                        gridSize={gridSize}
-                        mineTiles={scannerResult?.nonceScanResults?.[0]?.mines || []}
-                      />
-                      {!revealedServerSeed && (
-                        <p className="text-sm text-muted-foreground text-center">
-                          Provide a revealed server seed to see the top 3 golden path options with exact mine positions.
+                      <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-md text-center">
+                        <p className="text-sm font-semibold text-amber-400 mb-1">
+                          No Revealed Server Seed
                         </p>
+                        <p className="text-xs text-muted-foreground">
+                          The Apex Scanner requires a revealed server seed to calculate exact mine positions.
+                          Without it, only statistical analysis is available below.
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Base rate: each tile has a <span className="font-bold text-yellow-400">{((1 - mineCount / totalCells) * 100).toFixed(1)}%</span> chance of being safe
+                          ({mineCount} mines in {totalCells} cells).
+                        </p>
+                      </div>
+                      {probabilisticHeatmapReady && (
+                        <MinesGrid
+                          heatMap={heatMap ?? new Array(totalCells).fill(mineCount / totalCells)}
+                          isCracked={false}
+                          safeTiles={[]}
+                          gridSize={gridSize}
+                          mineTiles={[]}
+                          mineCount={mineCount}
+                        />
                       )}
+                      <p className="text-sm text-muted-foreground text-center">
+                        Click "Start Scan" with a revealed server seed to see the top 3 golden path options.
+                      </p>
                     </div>
                   )}
                 </div>

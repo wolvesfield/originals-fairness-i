@@ -153,75 +153,88 @@ export default function MinesGame({
           maxWidth: gridSize <= 5 ? '400px' : gridSize <= 6 ? '480px' : '560px'
         }}
       >
-        {Array.from({ length: totalCells }, (_, i) => {
-          const isMine = verifiedMines.includes(i)
-          const prob = probabilityMap[i] ?? 0
-          const hasProb = probabilityMap.length > 0
-          const safePercent = hasProb ? (1 - prob) * 100 : 0
+        {(() => {
+          const baseRate = mineCount / totalCells; // e.g. 3/25 = 0.12
+          return Array.from({ length: totalCells }, (_, i) => {
+            const isMine = verifiedMines.includes(i)
+            const prob = probabilityMap[i] ?? 0
+            const hasProb = probabilityMap.length > 0
 
-          let displayText: string
-          let bg: string
-          let textColor: string
-          let glow = ''
-          let icon = ''
+            let displayText: string
+            let bg: string
+            let textColor: string
+            let glow = ''
+            let icon = ''
 
-          if (isVerified) {
-            if (isMine) {
-              icon = '💣'
-              bg = 'bg-red-700/80 border-red-500'
-              textColor = 'text-red-200'
-              displayText = 'MINE'
+            if (isVerified) {
+              if (isMine) {
+                icon = '💣'
+                bg = 'bg-red-700/80 border-red-500'
+                textColor = 'text-red-200'
+                displayText = 'MINE'
+              } else {
+                icon = '💎'
+                bg = 'bg-emerald-600/80 border-emerald-400'
+                textColor = 'text-emerald-100'
+                glow = 'shadow-[0_0_10px_rgba(16,185,129,0.5)]'
+                displayText = 'SAFE'
+              }
+            } else if (hasProb) {
+              // Deviation-based coloring: compare to base rate
+              const deviation = prob - baseRate
+              const deviationPercent = baseRate > 0 ? (deviation / baseRate) * 100 : 0
+              const minePercent = (prob * 100).toFixed(1)
+
+              displayText = `${minePercent}%`
+
+              if (deviationPercent > 10) {
+                // More mines than average → RED
+                bg = 'bg-red-800/50 border-red-600/30'
+                textColor = 'text-red-300'
+                icon = '💣'
+              } else if (deviationPercent > 3) {
+                // Slightly above average → ORANGE
+                bg = 'bg-orange-700/40 border-orange-600/30'
+                textColor = 'text-orange-200'
+                icon = '⚠️'
+              } else if (deviationPercent > -3) {
+                // Near average → YELLOW (50/50)
+                bg = 'bg-yellow-700/40 border-yellow-600/30'
+                textColor = 'text-yellow-200'
+                icon = '⚖️'
+              } else if (deviationPercent > -10) {
+                // Below average → LIGHT GREEN
+                bg = 'bg-emerald-700/40 border-emerald-600/30'
+                textColor = 'text-emerald-200'
+                icon = '✅'
+              } else {
+                // Significantly below average → GREEN (safer)
+                bg = 'bg-emerald-600/60 border-emerald-500/50'
+                textColor = 'text-emerald-100'
+                glow = 'shadow-[0_0_8px_rgba(16,185,129,0.4)]'
+                icon = '💎'
+              }
             } else {
-              icon = '💎'
-              bg = 'bg-emerald-600/80 border-emerald-400'
-              textColor = 'text-emerald-100'
-              glow = 'shadow-[0_0_10px_rgba(16,185,129,0.5)]'
-              displayText = 'SAFE'
+              bg = 'bg-slate-800 border-slate-700'
+              textColor = 'text-slate-400'
+              displayText = '?'
+              icon = ''
             }
-          } else if (hasProb) {
-            displayText = `${safePercent.toFixed(1)}%`
-            if (safePercent >= 90) {
-              bg = 'bg-emerald-600/60 border-emerald-500/50'
-              textColor = 'text-emerald-100'
-              glow = 'shadow-[0_0_8px_rgba(16,185,129,0.4)] animate-pulse'
-              icon = '💎'
-            } else if (safePercent >= 75) {
-              bg = 'bg-emerald-700/40 border-emerald-600/30'
-              textColor = 'text-emerald-200'
-              icon = '✅'
-            } else if (safePercent >= 60) {
-              bg = 'bg-yellow-700/40 border-yellow-600/30'
-              textColor = 'text-yellow-200'
-              icon = '⚠️'
-            } else if (safePercent >= 40) {
-              bg = 'bg-orange-700/40 border-orange-600/30'
-              textColor = 'text-orange-200'
-              icon = '⚠️'
-            } else {
-              bg = 'bg-red-800/50 border-red-600/30'
-              textColor = 'text-red-300'
-              icon = '💣'
-            }
-          } else {
-            bg = 'bg-slate-800 border-slate-700'
-            textColor = 'text-slate-400'
-            displayText = '?'
-            icon = ''
-          }
 
-          const tileSize = gridSize <= 5 ? 'h-16 w-full' : gridSize <= 6 ? 'h-14 w-full' : 'h-12 w-full'
+            const tileSize = gridSize <= 5 ? 'h-16 w-full' : gridSize <= 6 ? 'h-14 w-full' : 'h-12 w-full'
 
-          return (
-            <div
-              key={i}
-              className={`${bg} ${glow} ${tileSize} flex flex-col items-center justify-center rounded-lg border transition-all duration-300`}
-            >
-              {icon && <span className="text-sm leading-none">{icon}</span>}
-              <span className="text-[9px] text-gray-400 leading-none">#{i}</span>
-              <span className={`text-[10px] font-bold ${textColor} leading-none`}>{displayText}</span>
-            </div>
-          )
-        })}
+            return (
+              <div
+                key={i}
+                className={`${bg} ${glow} ${tileSize} flex flex-col items-center justify-center rounded-lg border transition-all duration-300`}
+              >
+                {icon && <span className="text-sm leading-none">{icon}</span>}
+                <span className="text-[9px] text-gray-400 leading-none">#{i}</span>
+                <span className={`text-[10px] font-bold ${textColor} leading-none`}>{displayText}</span>
+              </div>
+            )
+          })
+        })()}
       </div>
     </div>
   )
