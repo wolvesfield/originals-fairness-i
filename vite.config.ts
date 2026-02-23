@@ -118,6 +118,7 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      external: ['better-sqlite3'],
       output: {
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],
