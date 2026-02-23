@@ -121,7 +121,7 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
 
       if (!res.ok) {
         let body = ''
-        try { body = await res.text() } catch {}
+        try { body = await res.text() } catch { /* ignore */ }
         const isCF = /cloudflare|cf-|just a moment/i.test(body)
         if (res.status === 403) {
           throw new Error(

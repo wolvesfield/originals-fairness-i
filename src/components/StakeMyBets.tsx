@@ -69,7 +69,7 @@ export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://corspro
     if (response.status === 403) {
       // Read body for details
       let body = ''
-      try { body = await response.text() } catch {}
+      try { body = await response.text() } catch { /* ignore */ }
       const isCloudflare = body.includes('cloudflare') || body.includes('cf-') || body.includes('Just a moment')
       if (isCloudflare) {
         throw new Error(

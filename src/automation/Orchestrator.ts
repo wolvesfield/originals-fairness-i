@@ -61,7 +61,7 @@ export class Orchestrator {
     if (liveData.crackedSeed) {
       console.log(`\n🎯 DETERMINISTIC MODE — Scanning next 50 nonces...`);
       const targetPattern = [0, 1, 2, 3, 4]; // Top row
-      let goldNonces: number[] = [];
+      const goldNonces: number[] = [];
 
       for (let n = liveData.activeSeed.nonce; n < liveData.activeSeed.nonce + 50; n++) {
         const hash = createHmac('sha256', liveData.crackedSeed)

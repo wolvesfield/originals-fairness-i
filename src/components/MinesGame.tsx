@@ -248,7 +248,7 @@ export default function MinesGame({
             let glow = ''
             let icon = ''
             let label = ''
-            let cursor = isPainting ? 'cursor-pointer' : 'cursor-default'
+            const cursor = isPainting ? 'cursor-pointer' : 'cursor-default'
 
             if (isVerified) {
               if (isMine) {
