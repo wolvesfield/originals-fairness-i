@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -6,6 +6,7 @@ import type { Platform, GridSize } from '@/lib/types'
 import { toast } from 'sonner'
 import { generateMinePositions } from '@/utils/fairnessEngine'
 import { ClusterVarianceAnalyzer } from '@/analysis/ClusterVarianceAnalyzer'
+import type { GameRoundResult } from '@/controllers/MasterController'
 
 interface MinesGameProps {
   platform: Platform
@@ -15,6 +16,7 @@ interface MinesGameProps {
   nonce: number
   mineCount: number
   onVerify: () => void
+  analysisResult?: GameRoundResult | null
 }
 
 export default function MinesGame({
@@ -24,7 +26,8 @@ export default function MinesGame({
   clientSeed,
   nonce,
   mineCount,
-  onVerify
+  onVerify,
+  analysisResult
 }: MinesGameProps) {
   const [gridSize, setGridSize] = useState<GridSize>(platform === 'roobet' ? 8 : 5)
   const [verifiedMines, setVerifiedMines] = useState<number[]>([])
@@ -33,6 +36,30 @@ export default function MinesGame({
 
   const totalCells = gridSize * gridSize
   const cva = useMemo(() => new ClusterVarianceAnalyzer(), [])
+
+  // Auto-populate from backend analysis results
+  useEffect(() => {
+    if (!analysisResult) return
+
+    // Deterministic: show exact mine positions from nonce scan
+    if (analysisResult.mode === 'DETERMINISTIC' && analysisResult.nonceScanResults?.length) {
+      const currentResult = analysisResult.nonceScanResults.find(r => r.nonce === nonce)
+      if (currentResult) {
+        setVerifiedMines(currentResult.mines)
+        setIsVerified(true)
+        setProbabilityMap([])
+      }
+    }
+
+    // Probabilistic: show heat map
+    if (analysisResult.heatMap?.length === totalCells) {
+      setProbabilityMap(analysisResult.heatMap)
+      if (analysisResult.mode === 'PROBABILISTIC') {
+        setVerifiedMines([])
+        setIsVerified(false)
+      }
+    }
+  }, [analysisResult, nonce, totalCells])
 
   const handleVerify = () => {
     if (!serverSeedHash || !clientSeed) {

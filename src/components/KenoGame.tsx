@@ -1,32 +1,57 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Check } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { generateKenoNumbers } from '@/utils/fairnessEngine'
+import type { GameRoundResult } from '@/controllers/MasterController'
 
 interface KenoGameProps {
   serverSeedHash: string
+  revealedServerSeed?: string | null
   clientSeed: string
   nonce: number
   onVerify: () => void
+  analysisResult?: GameRoundResult | null
 }
 
 export default function KenoGame({
   serverSeedHash,
+  revealedServerSeed,
   clientSeed,
   nonce,
-  onVerify
+  onVerify,
+  analysisResult
 }: KenoGameProps) {
   const [selectedNumbers, setSelectedNumbers] = useState<number[]>([])
   const [isVerified, setIsVerified] = useState(false)
 
+  // Auto-populate from backend analysis results
+  useEffect(() => {
+    if (!analysisResult) return
+
+    if (analysisResult.kenoScanResults?.length) {
+      const currentResult = analysisResult.kenoScanResults.find(r => r.nonce === nonce)
+      if (currentResult) {
+        setSelectedNumbers(currentResult.drawnNumbers)
+        setIsVerified(true)
+      }
+    }
+  }, [analysisResult, nonce])
+
   const handleVerify = () => {
-    if (!serverSeedHash || !clientSeed) {
-      toast.error('Please fill in Server Seed Hash and Client Seed')
+    if (!clientSeed) {
+      toast.error('Please fill in Client Seed')
       return
     }
 
-    const numbers = generateKenoNumbers(serverSeedHash, clientSeed, nonce, 10, 40)
+    // Use revealed server seed (from analysis or manual entry), NOT the hash
+    const seed = revealedServerSeed
+    if (!seed) {
+      toast.error('Server seed required — run "Analyze Game State" or provide the revealed seed')
+      return
+    }
+
+    const numbers = generateKenoNumbers(seed, clientSeed, nonce, 10, 40)
 
     setSelectedNumbers(numbers)
     setIsVerified(true)

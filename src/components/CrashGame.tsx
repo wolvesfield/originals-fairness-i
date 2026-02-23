@@ -3,19 +3,24 @@ import { Button } from '@/components/ui/button'
 import { Check } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { calculateCrashPoint as computeCrashPoint } from '@/utils/fairnessEngine'
+import type { GameRoundResult } from '@/controllers/MasterController'
 
 interface CrashGameProps {
   serverSeedHash: string
+  revealedServerSeed?: string | null
   clientSeed: string
   nonce: number
   onVerify: () => void
+  analysisResult?: GameRoundResult | null
 }
 
 export default function CrashGame({
   serverSeedHash,
+  revealedServerSeed,
   clientSeed,
   nonce,
-  onVerify
+  onVerify,
+  analysisResult
 }: CrashGameProps) {
   const [isAnimating, setIsAnimating] = useState(false)
   const [multiplier, setMultiplier] = useState(1.0)
@@ -33,8 +38,23 @@ export default function CrashGame({
     }
   }, [])
 
+  // Auto-populate from backend analysis results
+  useEffect(() => {
+    if (!analysisResult?.crashScanResults?.length) return
+
+    const currentResult = analysisResult.crashScanResults.find(r => r.nonce === nonce)
+    if (currentResult) {
+      setCrashPoint(currentResult.crashPoint)
+      setMultiplier(currentResult.crashPoint)
+      setCrashed(true)
+      setIsAnimating(false)
+    }
+  }, [analysisResult, nonce])
+
   const calculateCrashPoint = () => {
-    return computeCrashPoint(serverSeedHash, clientSeed, nonce)
+    // Use revealed server seed (from analysis or manual entry), NOT the hash
+    const seed = revealedServerSeed || serverSeedHash
+    return computeCrashPoint(seed, clientSeed, nonce)
   }
 
   const animate = (timestamp: number) => {
@@ -86,8 +106,13 @@ export default function CrashGame({
   }
 
   const handleVerify = () => {
-    if (!serverSeedHash || !clientSeed) {
-      toast.error('Please fill in Server Seed Hash and Client Seed')
+    if (!clientSeed) {
+      toast.error('Please fill in Client Seed')
+      return
+    }
+
+    if (!revealedServerSeed) {
+      toast.error('Server seed required — run "Analyze Game State" or provide the revealed seed')
       return
     }
 

@@ -17,6 +17,7 @@ import { GoldPathHUD } from '@/components/GoldPathHUD'
 import { FutureChainSidebar } from '@/components/FutureChainSidebar'
 import { MinesGrid } from '@/components/MinesGrid'
 import { MasterController } from '@/controllers/MasterController'
+import type { GameRoundResult } from '@/controllers/MasterController'
 import { generateMinePositions } from '@/utils/fairnessEngine'
 
 type AppTab = GameType | 'batch' | 'apex'
@@ -44,6 +45,8 @@ function App() {
   const [clientSeed, setClientSeed] = useState('')
   const [nonce, setNonce] = useState(0)
   const [mineCount, setMineCount] = useState(3)
+  const [analysisState, setAnalysisState] = useState<'idle' | 'analyzing' | 'complete'>('idle')
+  const [analysisResult, setAnalysisResult] = useState<GameRoundResult | null>(null)
 
   const totalCells = platform === 'roobet' ? 64 : 25
   const gridSize = platform === 'roobet' ? 8 : 5
@@ -67,8 +70,11 @@ function App() {
     })
   }
 
-  const handleStartScan = async () => {
+  const handleAnalyze = async (overrideSeed?: string) => {
+    setAnalysisState('analyzing')
     setHashStatus('SEARCHING')
+
+    const seedToUse = overrideSeed || revealedServerSeed || undefined
 
     const result = await masterController.processGameRound(
       serverSeedHash || 'unknown',
@@ -77,13 +83,20 @@ function App() {
       100,
       targetTiles,
       mineCount,
-      revealedServerSeed ?? undefined,
+      seedToUse,
       totalCells
     )
 
+    setAnalysisResult(result)
+    setAnalysisState('complete')
     setScannerResult(result)
     setConfidence(result.confidence)
     setHashStatus(result.mode === 'DETERMINISTIC' ? 'CRACKED' : 'UNKNOWN')
+
+    // Auto-set revealed seed if backend resolved it
+    if (result.crackedSeed) {
+      setRevealedServerSeed(result.crackedSeed)
+    }
 
     if (result.heatMap?.length === totalCells) {
       setHeatMap(result.heatMap)
@@ -128,6 +141,11 @@ function App() {
       const merged = [...predictions, ...(current || [])]
       return merged.slice(0, 100)
     })
+  }
+
+  const handleManualSeedApply = (seed: string) => {
+    setRevealedServerSeed(seed)
+    handleAnalyze(seed)
   }
 
   return (
@@ -188,7 +206,11 @@ function App() {
 
         <ServerSeedReveal
           serverSeedHash={serverSeedHash}
-          onVerifiedSeed={setRevealedServerSeed}
+          clientSeed={clientSeed}
+          analysisState={analysisState}
+          analysisResult={analysisResult}
+          onAnalyze={() => handleAnalyze()}
+          onManualSeedApply={handleManualSeedApply}
         />
 
         <Card className="p-6">
@@ -225,24 +247,29 @@ function App() {
                 nonce={nonce}
                 mineCount={mineCount}
                 onVerify={() => handleVerify('mines')}
+                analysisResult={analysisResult}
               />
             </TabsContent>
 
             <TabsContent value="keno" className="mt-6">
               <KenoGame
                 serverSeedHash={serverSeedHash}
+                revealedServerSeed={revealedServerSeed}
                 clientSeed={clientSeed}
                 nonce={nonce}
                 onVerify={() => handleVerify('keno')}
+                analysisResult={analysisResult}
               />
             </TabsContent>
 
             <TabsContent value="crash" className="mt-6">
               <CrashGame
                 serverSeedHash={serverSeedHash}
+                revealedServerSeed={revealedServerSeed}
                 clientSeed={clientSeed}
                 nonce={nonce}
                 onVerify={() => handleVerify('crash')}
+                analysisResult={analysisResult}
               />
             </TabsContent>
 
@@ -261,7 +288,7 @@ function App() {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-semibold">Provably Fair Apex Scanner</h3>
-                    <Button onClick={handleStartScan} className="bg-primary hover:bg-primary/90">
+                    <Button onClick={() => handleAnalyze()} className="bg-primary hover:bg-primary/90">
                       Start Scan
                     </Button>
                   </div>
