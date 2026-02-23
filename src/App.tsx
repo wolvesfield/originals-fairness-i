@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
-import { GridFour, NumberSquareEight, TrendUp, ListChecks } from '@phosphor-icons/react'
+import { GridFour, NumberSquareEight, TrendUp, ListChecks, Plugs } from '@phosphor-icons/react'
 import type { Platform, GameType, VerificationResult } from '@/lib/types'
 import ConfigPanel from '@/components/ConfigPanel'
 import ServerSeedReveal from '@/components/ServerSeedReveal'
@@ -15,6 +15,8 @@ import CrashGame from '@/components/CrashGame'
 import BatchVerification from '@/components/BatchVerification'
 import StakeMyBets from '@/components/StakeMyBets'
 import SeedHistory from '@/components/SeedHistory'
+import ApiConnections from '@/components/ApiConnections'
+import type { ApiConfig } from '@/components/ApiConnections'
 import { GoldPathHUD } from '@/components/GoldPathHUD'
 import { FutureChainSidebar } from '@/components/FutureChainSidebar'
 import { MinesGrid } from '@/components/MinesGrid'
@@ -53,6 +55,11 @@ function App() {
   const [apexResult, setApexResult] = useState<ApexScanResult | null>(null)
   const [selectedApexOption, setSelectedApexOption] = useState<number>(0)
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0)
+  const [apiConfig, setApiConfig] = useState<ApiConfig>({
+    stakeToken: localStorage.getItem('stake_auth_token') || '',
+    hashesApiKey: '',
+    corsProxy: 'https://corsproxy.io/?url=',
+  })
 
   const totalCells = platform === 'roobet' ? 64 : 25
   const gridSize = platform === 'roobet' ? 8 : 5
@@ -276,39 +283,40 @@ function App() {
           onManualSeedApply={handleManualSeedApply}
         />
 
+        {/* API Connections Manager */}
+        <ApiConnections onConfigChange={setApiConfig} />
+
         {/* Stake.com My Bets Integration */}
         {platform === 'stake' && (
-          <StakeMyBets onApplySeeds={handleStakeApplySeeds} />
+          <StakeMyBets onApplySeeds={handleStakeApplySeeds} corsProxy={apiConfig.corsProxy} />
         )}
-
-        {/* Seed History */}
-        <SeedHistory
-          onApplyEntry={handleHistoryApply}
-          refreshTrigger={historyRefreshTrigger}
-        />
 
         <Card className="p-6">
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as AppTab)}>
-            <TabsList className="grid w-full grid-cols-5">
-              <TabsTrigger value="mines" className="gap-2">
-                <GridFour size={20} />
+            <TabsList className="grid w-full grid-cols-6">
+              <TabsTrigger value="mines" className="gap-1.5 text-xs sm:text-sm">
+                <GridFour size={18} />
                 Mines
               </TabsTrigger>
-              <TabsTrigger value="keno" className="gap-2">
-                <NumberSquareEight size={20} />
+              <TabsTrigger value="keno" className="gap-1.5 text-xs sm:text-sm">
+                <NumberSquareEight size={18} />
                 Keno
               </TabsTrigger>
-              <TabsTrigger value="crash" className="gap-2">
-                <TrendUp size={20} />
+              <TabsTrigger value="crash" className="gap-1.5 text-xs sm:text-sm">
+                <TrendUp size={18} />
                 Crash
               </TabsTrigger>
-              <TabsTrigger value="batch" className="gap-2">
-                <ListChecks size={20} />
+              <TabsTrigger value="batch" className="gap-1.5 text-xs sm:text-sm">
+                <ListChecks size={18} />
                 Batch
               </TabsTrigger>
-              <TabsTrigger value="apex" className="gap-2">
-                <TrendUp size={20} />
+              <TabsTrigger value="apex" className="gap-1.5 text-xs sm:text-sm">
+                <TrendUp size={18} />
                 Apex
+              </TabsTrigger>
+              <TabsTrigger value="history" className="gap-1.5 text-xs sm:text-sm">
+                <Plugs size={18} />
+                History
               </TabsTrigger>
             </TabsList>
 
@@ -449,6 +457,13 @@ function App() {
                 </div>
                 <FutureChainSidebar predictions={futurePredictions as FuturePrediction[]} />
               </div>
+            </TabsContent>
+
+            <TabsContent value="history" className="mt-6">
+              <SeedHistory
+                onApplyEntry={handleHistoryApply}
+                refreshTrigger={historyRefreshTrigger}
+              />
             </TabsContent>
           </Tabs>
         </Card>

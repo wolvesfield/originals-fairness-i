@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
+import { buildProxiedUrl } from './ApiConnections'
 
 interface StakeBet {
   serverSeedHash: string
@@ -26,16 +27,17 @@ interface StakeActiveSeedPair {
 
 interface StakeMyBetsProps {
   onApplySeeds: (serverSeedHash: string, clientSeed: string, nonce: number, revealedSeed?: string) => void
+  corsProxy?: string
 }
 
-export default function StakeMyBets({ onApplySeeds }: StakeMyBetsProps) {
+export default function StakeMyBets({ onApplySeeds, corsProxy = '' }: StakeMyBetsProps) {
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('stake_auth_token') || '')
   const [isLoading, setIsLoading] = useState(false)
   const [betHistory, setBetHistory] = useState<StakeBet[]>([])
   const [activePair, setActivePair] = useState<StakeActiveSeedPair | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const ENDPOINT = 'https://stake.com/_api/graphql'
+  const RAW_ENDPOINT = 'https://stake.com/_api/graphql'
 
   const saveToken = (token: string) => {
     setAuthToken(token)
@@ -47,6 +49,8 @@ export default function StakeMyBets({ onApplySeeds }: StakeMyBetsProps) {
   }
 
   const graphqlFetch = async (query: string, variables: Record<string, unknown> = {}, operationName?: string) => {
+    const endpoint = buildProxiedUrl(RAW_ENDPOINT, corsProxy)
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Accept': '*/*',
@@ -55,11 +59,21 @@ export default function StakeMyBets({ onApplySeeds }: StakeMyBetsProps) {
     }
     if (operationName) headers['x-operation-name'] = operationName
 
-    const response = await fetch(ENDPOINT, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ query, variables })
-    })
+    let response: Response
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ query, variables })
+      })
+    } catch (fetchErr: any) {
+      if (fetchErr.message?.includes('Failed to fetch') || fetchErr.message?.includes('NetworkError')) {
+        throw new Error(
+          'CORS blocked — go to the "API Connections" panel → Proxy tab and configure a CORS proxy, then retry.'
+        )
+      }
+      throw fetchErr
+    }
 
     if (!response.ok) {
       throw new Error(`Stake API: ${response.status} ${response.statusText}`)
