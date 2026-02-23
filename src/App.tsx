@@ -59,7 +59,7 @@ function App() {
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
     stakeToken: localStorage.getItem('stake_auth_token') || '',
     hashesApiKey: localStorage.getItem('hashes_api_key') || '',
-    corsProxy: localStorage.getItem('cors_proxy') || 'https://corsproxy.io/?',
+    corsProxy: localStorage.getItem('cors_proxy') || 'https://fairness-cors-proxy.wolvesfield.workers.dev/?url=',
   })
 
   const totalCells = platform === 'roobet' ? 64 : 25

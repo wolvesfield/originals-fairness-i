@@ -32,7 +32,7 @@ interface StakeMyBetsProps {
 
 const DEFAULT_STAKE_TOKEN = 'cf3f4d5a42f40a19ad83c94c285826a8d62d003f24260e6aa46f732bb2f681a434bacc48441c27824ab6c434776736e9'
 
-export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://corsproxy.io/?' }: StakeMyBetsProps) {
+export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://fairness-cors-proxy.wolvesfield.workers.dev/?url=' }: StakeMyBetsProps) {
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('stake_auth_token') || DEFAULT_STAKE_TOKEN)
   const [isLoading, setIsLoading] = useState(false)
   const [betHistory, setBetHistory] = useState<StakeBet[]>([])

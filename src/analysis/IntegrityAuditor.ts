@@ -24,7 +24,7 @@ export class IntegrityAuditor {
       : null;
     this.hashesApiKey = browserKey
       || (typeof process !== 'undefined' && process.env?.HASHES_API_KEY)
-      || 'ff5b33e2ea497707f8aa0cb7e9f7b8e88c2f40f2552a9b61111ff48e304ec6519362d0fdc78c0e049f75b227b3c44eff';
+      || '94b5b9c73e8a71fd34f7e12abea2e919';
   }
 
   /**
@@ -183,8 +183,10 @@ export class IntegrityAuditor {
    */
   private buildProxiedUrl(targetUrl: string): string {
     const proxyPrefix = (typeof window !== 'undefined' && localStorage.getItem('cors_proxy'))
-      || 'https://corsproxy.io/?key=f02f2d8a&url=';
+      || 'https://fairness-cors-proxy.wolvesfield.workers.dev/?url=';
     if (!proxyPrefix) return targetUrl;
+    if (proxyPrefix.includes('workers.dev')) return proxyPrefix + encodeURIComponent(targetUrl);
+    if (proxyPrefix.includes('corsproxy.io')) return proxyPrefix + targetUrl;
     return proxyPrefix + encodeURIComponent(targetUrl);
   }
 

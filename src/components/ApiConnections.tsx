@@ -40,8 +40,8 @@ function saveConfig(config: ApiConfig) {
 }
 
 const DEFAULT_STAKE_TOKEN = 'cf3f4d5a42f40a19ad83c94c285826a8d62d003f24260e6aa46f732bb2f681a434bacc48441c27824ab6c434776736e9'
-const DEFAULT_HASHES_KEY = 'ff5b33e2ea497707f8aa0cb7e9f7b8e88c2f40f2552a9b61111ff48e304ec6519362d0fdc78c0e049f75b227b3c44eff'
-const DEFAULT_CORS_PROXY = 'https://corsproxy.io/?'
+const DEFAULT_HASHES_KEY = '94b5b9c73e8a71fd34f7e12abea2e919'
+const DEFAULT_CORS_PROXY = 'https://fairness-cors-proxy.wolvesfield.workers.dev/?url='
 
 function defaultConfig(): ApiConfig {
   return {
@@ -320,8 +320,8 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
           </div>
           <div className="flex flex-wrap gap-2">
             {[
+              { label: 'CF Worker (recommended)', url: 'https://fairness-cors-proxy.wolvesfield.workers.dev/?url=' },
               { label: 'corsproxy.io', url: 'https://corsproxy.io/?' },
-              { label: 'corsproxy.io (keyed)', url: 'https://corsproxy.io/?key=f02f2d8a&url=' },
               { label: 'thingproxy', url: 'https://thingproxy.freeboard.io/fetch/' },
               { label: 'No proxy (direct)', url: '' },
             ].map(preset => (
@@ -374,6 +374,12 @@ export function stakeHeaders(token: string, operationName?: string): Record<stri
 export function buildProxiedUrl(targetUrl: string, proxyPrefix: string): string {
   if (!proxyPrefix) return targetUrl
 
+  // Cloudflare Workers proxy expects URL-encoded target in ?url= param
+  if (proxyPrefix.includes('workers.dev')) {
+    if (proxyPrefix.endsWith('url=')) return proxyPrefix + encodeURIComponent(targetUrl)
+    return proxyPrefix + targetUrl
+  }
+
   // corsproxy.io expects raw (non-encoded) URLs
   if (proxyPrefix.includes('corsproxy.io')) {
     return proxyPrefix + targetUrl
@@ -384,7 +390,6 @@ export function buildProxiedUrl(targetUrl: string, proxyPrefix: string): string 
     return proxyPrefix + encodeURIComponent(targetUrl)
   }
 
-  // Custom workers / other proxies: append raw URL
   return proxyPrefix + targetUrl
 }
 
@@ -393,9 +398,8 @@ export function buildProxiedUrl(targetUrl: string, proxyPrefix: string): string 
  * error, falls back to alternative proxies automatically.
  */
 const FALLBACK_PROXIES = [
+  'https://fairness-cors-proxy.wolvesfield.workers.dev/?url=',
   'https://corsproxy.io/?',
-  'https://corsproxy.io/?key=f02f2d8a&url=',
-  'https://proxy.cors.sh/',
   'https://thingproxy.freeboard.io/fetch/',
 ]
 

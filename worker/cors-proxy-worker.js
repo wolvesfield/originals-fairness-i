@@ -15,10 +15,12 @@
  */
 
 const ALLOWED_ORIGINS = [
-  'https://arcanadraconi.github.io',
+  'https://fluffy-dollop-kze8421.pages.github.io',
+  'https://wolvesfield.github.io',
   'http://localhost:5173',
   'http://localhost:3000',
   'http://127.0.0.1:5173',
+  'http://localhost:5000',
 ];
 
 // Browser-mimicking headers for Stake.com (from HAR capture of real Chrome session)
