@@ -57,8 +57,8 @@ function App() {
   const [selectedApexOption, setSelectedApexOption] = useState<number>(0)
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0)
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
-    stakeToken: localStorage.getItem('stake_auth_token') || 'cf3f4d5a42f40a19ad83c94c285826a8d62d003f24260e6aa46f732bb2f681a434bacc48441c27824ab6c434776736e9',
-    hashesApiKey: localStorage.getItem('hashes_api_key') || 'ff5b33e2ea497707f8aa0cb7e9f7b8e88c2f40f2552a9b61111ff48e304ec6519362d0fdc78c0e049f75b227b3c44eff',
+    stakeToken: localStorage.getItem('stake_auth_token') || '',
+    hashesApiKey: localStorage.getItem('hashes_api_key') || '',
     corsProxy: localStorage.getItem('cors_proxy') || 'https://corsproxy.io/?',
   })
 

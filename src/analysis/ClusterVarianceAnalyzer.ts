@@ -9,7 +9,7 @@ import { generateMinePositions } from '../utils/fairnessEngine';
  * is representative of actual mine placement behaviour.
  */
 export class ClusterVarianceAnalyzer {
-  private iterations = 10000; // 10k iterations, each using real algorithm
+  private iterations = 50000;
 
   /**
    * Generate a probability heat map showing how likely each cell is to

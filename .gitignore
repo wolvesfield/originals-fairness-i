@@ -43,3 +43,19 @@ database/
 
 # Local transient workspace files
 tmpclaude-*-cwd
+
+# Scan results and sensitive outputs
+scan-results.json
+aggregated-results.json
+*.sqlite
+*.db
+
+# OS files
+Thumbs.db
+ehthumbs.db
+
+# Test coverage
+coverage/
+
+# Build caches
+.tsbuildinfo

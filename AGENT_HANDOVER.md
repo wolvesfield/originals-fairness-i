@@ -1,12 +1,17 @@
 # Agent Handover — Neural-Entropy Suite
 
-## Snapshot
+This document is a historical handover snapshot. For the canonical view of current status and operations, see:
+
+- `docs/status.md` — phases, roadmap, and module completion.
+- `docs/operations.md` — installation, environment configuration, and run commands.
+
+## Snapshot (Historical)
 - Repo: `wolvesfield/originals-fairness-i`
 - Branch: `main`
 - Last sync commit: `627960b` (`chore: sync all local workspace changes`)
 - Status at handover: local and remote in sync
 
-## What Was Completed
+## What Was Completed (At Time of Handover)
 
 ### Platform & Infrastructure
 - Added and wired core modules under:
@@ -35,36 +40,27 @@
 - Added `.env.example` with placeholders.
 - Added VS Code Python interpreter default in `.vscode/settings.json`.
 
-## Current Runtime / Ops Notes
-- Build previously passed (`npm run build`) with non-blocking warnings (chunk size and CSS media warnings).
-- Dev server previously ran on `http://127.0.0.1:5000/`.
-- Spark KV is used for dashboard state and verification history.
+## Current Runtime / Ops (See `docs/operations.md`)
 
-## Required Secrets (local `.env` only)
-- `HASHES_API_KEY`
-- `STAKE_AUTH_TOKEN`
-- `ETHEREUM_RPC_URL`
-- `CASINO_CONTRACT_ADDRESS`
-- `DISCORD_WEBHOOK_URL`
-- Optional: `TAVILY_API_KEY`, `MEM0_API_KEY`, `SUPABASE_SERVICE_KEY`, `GITHUB_FINE_GRAINED_PAT`
+The high-level runtime/ops notes and suggested commands are now maintained in `docs/operations.md`. Use that document for the latest instructions on:
 
-## Pending Validation Checklist
+- Build and dev server commands.
+- Baseline and audit runs.
+- CI pipeline expectations.
+
+## Required Secrets (Local `.env`)
+
+For the list of required secrets and environment variables, see `docs/operations.md` and `.env.example`. The values listed here are retained as a historical reference only.
+
+## Pending Validation Checklist (Historical)
 1. Run live authenticated ingestion (Stake + Roobet scraper) with real credentials.
 2. Verify Hashes.com and Ethereum contract checks against real endpoints.
 3. Confirm Apex tab UX under real scan load and long prediction lists.
 4. Execute full CI run (`baseline`, `audit`, alert dispatch) with secrets configured.
 5. Review and tighten any broad "sync all" commit artifacts before release tagging.
 
-## Suggested Next Commands
-```bash
-npm install
-npm run build
-npm run dev
-npm run baseline
-npm run audit
-```
-
 ## Ownership Notes for Next Agent
 - Treat `src/App.tsx` as the primary integration surface.
 - Keep all new state persisted via `@github/spark/hooks` `useKV`.
 - Prefer incremental, test-backed changes; avoid another broad “sync all” commit.
+
