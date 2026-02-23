@@ -16,6 +16,10 @@ permissions:
 jobs:
   codeql:
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
     strategy:
       matrix:
         language: [javascript-typescript]
