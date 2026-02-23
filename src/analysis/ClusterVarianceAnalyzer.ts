@@ -1,24 +1,50 @@
-import CryptoJS from 'crypto-js';
+import { generateMinePositions } from '../utils/fairnessEngine';
 
 /**
- * 50,000 Iteration Monte Carlo Density Mapping
- * Identifies statistical "dead zones" with <15% collision probability
+ * Monte Carlo Density Mapping using the REAL fairness engine algorithm.
+ * Uses the same Fisher-Yates shuffle + HMAC-SHA256 float generation
+ * as the actual provably fair system, ensuring accurate probability maps.
+ *
+ * Each simulation uses a unique simulated server seed so the distribution
+ * is representative of actual mine placement behaviour.
  */
 export class ClusterVarianceAnalyzer {
-  private iterations = 50000;
+  private iterations = 10000; // 10k iterations, each using real algorithm
 
-  generateDensityMap(gridSize: number, mineCount: number, baseSeed: string): number[] {
-    const heatMap = new Array(gridSize).fill(0);
+  /**
+   * Generate a probability heat map showing how likely each cell is to
+   * contain a mine. Values are in [0, 1] where higher = more dangerous.
+   *
+   * @param totalCells - Total grid cells (e.g. 25 for 5x5)
+   * @param mineCount  - Number of mines per round
+   * @param baseSeed   - Base seed string (used to derive simulated server seeds)
+   * @returns Array of length totalCells with mine probability per cell
+   */
+  generateDensityMap(totalCells: number, mineCount: number, baseSeed: string): number[] {
+    const hitCount = new Array(totalCells).fill(0);
 
+    // Use the REAL fairness engine algorithm for each simulation.
+    // Each iteration simulates a different server seed but same client seed / nonce structure.
     for (let i = 0; i < this.iterations; i++) {
-      const simHash = CryptoJS.HmacSHA256(`sim:${i}:0`, baseSeed).toString(CryptoJS.enc.Hex);
-      const mines = this.mapHashToMines(simHash, mineCount, gridSize);
-      mines.forEach((pos) => { heatMap[pos] += 1 / this.iterations; });
+      // Create a unique simulated "server seed" for this iteration
+      const simServerSeed = `sim-${baseSeed}-${i}`;
+      const simClientSeed = 'monte-carlo';
+      const simNonce = i;
+
+      // Use the EXACT same Fisher-Yates algorithm the real system uses
+      const mines = generateMinePositions(simServerSeed, simClientSeed, simNonce, mineCount, totalCells);
+      mines.forEach((pos) => { hitCount[pos]++; });
     }
 
-    return heatMap;
+    // Convert counts to probabilities
+    return hitCount.map(count => count / this.iterations);
   }
 
+  /**
+   * Identify cells with mine probability below the threshold ("dead zones" = safest tiles).
+   * With correct Fisher-Yates, for 3 mines in 25 cells, expected probability per cell
+   * is 3/25 = 0.12 (12%). So threshold of 0.15 catches cells near or below average.
+   */
   identifyDeadZones(heatMap: number[], threshold: number = 0.15): number[] {
     return heatMap
       .map((prob, index) => ({ index, prob }))
@@ -27,47 +53,15 @@ export class ClusterVarianceAnalyzer {
       .map((t) => t.index);
   }
 
-  private mapHashToMines(hash: string, mineCount: number, gridSize: number): number[] {
-    const positions = Array.from({ length: gridSize }, (_, i) => i);
-    const mines: number[] = [];
-    let idx = 0;
-    while (mines.length < mineCount) {
-      const seg = hash.substring(idx, idx + 2);
-      const ptr = parseInt(seg, 16) % positions.length;
-      mines.push(positions.splice(ptr, 1)[0]);
-      idx += 2;
-      if (idx >= 60) {
-        hash = CryptoJS.SHA256(hash).toString(CryptoJS.enc.Hex);
-        idx = 0;
-      }
-    }
-    return mines;
+  /**
+   * Get the top N safest tiles sorted by lowest mine probability.
+   */
+  getSafestTiles(heatMap: number[], count: number = 5): { index: number; safePercent: number }[] {
+    return heatMap
+      .map((prob, index) => ({ index, safePercent: (1 - prob) * 100 }))
+      .sort((a, b) => b.safePercent - a.safePercent)
+      .slice(0, count);
   }
 }
 
-// CLI entry point for standalone testing
-if (typeof process !== 'undefined' && process.argv[1]?.includes('ClusterVarianceAnalyzer')) {
-  console.log('═══ CLUSTER VARIANCE ANALYZER — MONTE CARLO DEMO ═══\n');
-  const cva = new ClusterVarianceAnalyzer();
-  const seed = process.argv[2] || 'demo-seed:42';
-  const gridSize = 25;
-  const mineCount = 3;
 
-  console.log(`Seed basis: "${seed}"`);
-  console.log(`Grid: ${gridSize} cells, ${mineCount} mines`);
-  console.log(`Running 50,000 Monte Carlo iterations...\n`);
-
-  const start = Date.now();
-  const heatMap = cva.generateDensityMap(gridSize, mineCount, seed);
-  const elapsed = Date.now() - start;
-
-  console.log('Heat Map (mine probability per cell):');
-  for (let row = 0; row < 5; row++) {
-    const cells = heatMap.slice(row * 5, row * 5 + 5).map(p => p.toFixed(3).padStart(6));
-    console.log(`  Row ${row}: [${cells.join(', ')}]`);
-  }
-
-  const deadZones = cva.identifyDeadZones(heatMap);
-  console.log(`\nDead Zones (<15% probability): [${deadZones.join(', ')}]`);
-  console.log(`Completed in ${elapsed}ms`);
-}

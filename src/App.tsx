@@ -13,14 +13,17 @@ import MinesGame from '@/components/MinesGame'
 import KenoGame from '@/components/KenoGame'
 import CrashGame from '@/components/CrashGame'
 import BatchVerification from '@/components/BatchVerification'
+import StakeMyBets from '@/components/StakeMyBets'
+import SeedHistory from '@/components/SeedHistory'
 import { GoldPathHUD } from '@/components/GoldPathHUD'
 import { FutureChainSidebar } from '@/components/FutureChainSidebar'
 import { MinesGrid } from '@/components/MinesGrid'
 import { MasterController } from '@/controllers/MasterController'
-import type { GameRoundResult } from '@/controllers/MasterController'
+import type { GameRoundResult, ApexScanResult } from '@/controllers/MasterController'
 import { generateMinePositions } from '@/utils/fairnessEngine'
+import { addSeedHistoryEntry } from '@/db/browserDb'
 
-type AppTab = GameType | 'batch' | 'apex'
+type AppTab = GameType | 'batch' | 'apex' | 'history'
 
 interface FuturePrediction {
   nonce: number
@@ -47,6 +50,9 @@ function App() {
   const [mineCount, setMineCount] = useState(3)
   const [analysisState, setAnalysisState] = useState<'idle' | 'analyzing' | 'complete'>('idle')
   const [analysisResult, setAnalysisResult] = useState<GameRoundResult | null>(null)
+  const [apexResult, setApexResult] = useState<ApexScanResult | null>(null)
+  const [selectedApexOption, setSelectedApexOption] = useState<number>(0)
+  const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0)
 
   const totalCells = platform === 'roobet' ? 64 : 25
   const gridSize = platform === 'roobet' ? 8 : 5
@@ -112,6 +118,22 @@ function App() {
       setHeatMap(baseHeatMap)
     }
 
+    // Run Apex scan if we have a revealed seed
+    const effectiveSeed = result.crackedSeed || seedToUse
+    if (effectiveSeed) {
+      const apex = masterController.apexScan(
+        effectiveSeed,
+        clientSeed || 'default-client-seed',
+        nonce,
+        targetTiles,
+        mineCount,
+        totalCells,
+        3
+      )
+      setApexResult(apex)
+      setSelectedApexOption(0)
+    }
+
     const predictions: FuturePrediction[] = Array.from({ length: 50 }, (_, i) => {
       const predictionNonce = nonce + i + 1
       if (result.crackedSeed) {
@@ -141,11 +163,51 @@ function App() {
       const merged = [...predictions, ...(current || [])]
       return merged.slice(0, 100)
     })
+
+    // Save to seed history (IndexedDB)
+    try {
+      await addSeedHistoryEntry({
+        serverSeedHash: serverSeedHash || 'unknown',
+        clientSeed: clientSeed || 'default-client-seed',
+        nonce,
+        revealedServerSeed: result.crackedSeed || seedToUse || undefined,
+        platform,
+        gameType: activeTab === 'batch' || activeTab === 'apex' || activeTab === 'history' ? 'mines' : activeTab,
+        mode: result.mode,
+        confidence: result.confidence,
+        timestamp: new Date().toISOString()
+      })
+      setHistoryRefreshTrigger(prev => prev + 1)
+    } catch (err) {
+      console.warn('Failed to save seed history:', err)
+    }
   }
 
   const handleManualSeedApply = (seed: string) => {
     setRevealedServerSeed(seed)
     handleAnalyze(seed)
+  }
+
+  const handleStakeApplySeeds = (hash: string, client: string, n: number, revealed?: string) => {
+    setServerSeedHash(hash)
+    setClientSeed(client)
+    setNonce(n)
+    if (revealed) {
+      setRevealedServerSeed(revealed)
+    }
+  }
+
+  const handleHistoryApply = (hash: string, client: string, n: number, revealed?: string) => {
+    setServerSeedHash(hash)
+    setClientSeed(client)
+    setNonce(n)
+    if (revealed) {
+      setRevealedServerSeed(revealed)
+    }
+  }
+
+  const handleDismissGoldPath = () => {
+    setScannerResult({ found: false })
   }
 
   return (
@@ -154,6 +216,7 @@ function App() {
         scannerResult={scannerResult}
         confidence={confidence ?? 0}
         hashStatus={hashStatus as 'CRACKED' | 'SEARCHING' | 'UNKNOWN'}
+        onClose={handleDismissGoldPath}
       />
       <div className="mx-auto max-w-7xl space-y-6">
         <header className="flex items-center justify-between">
@@ -211,6 +274,17 @@ function App() {
           analysisResult={analysisResult}
           onAnalyze={() => handleAnalyze()}
           onManualSeedApply={handleManualSeedApply}
+        />
+
+        {/* Stake.com My Bets Integration */}
+        {platform === 'stake' && (
+          <StakeMyBets onApplySeeds={handleStakeApplySeeds} />
+        )}
+
+        {/* Seed History */}
+        <SeedHistory
+          onApplyEntry={handleHistoryApply}
+          refreshTrigger={historyRefreshTrigger}
         />
 
         <Card className="p-6">
@@ -276,7 +350,7 @@ function App() {
             <TabsContent value="batch" className="mt-6">
               <BatchVerification
                 platform={platform}
-                game={activeTab === 'batch' || activeTab === 'apex' ? 'mines' : activeTab}
+                game={activeTab === 'batch' || activeTab === 'apex' || activeTab === 'history' ? 'mines' : activeTab}
                 serverSeedHash={serverSeedHash}
                 clientSeed={clientSeed}
                 onClose={() => setActiveTab('mines')}
@@ -292,13 +366,86 @@ function App() {
                       Start Scan
                     </Button>
                   </div>
-                  <MinesGrid
-                    heatMap={heatMap ?? new Array(totalCells).fill(0)}
-                    isCracked={hashStatus === 'CRACKED'}
-                    safeTiles={scannerResult?.safePath || []}
-                    gridSize={gridSize}
-                    mineTiles={scannerResult?.nonceScanResults?.[0]?.mines || []}
-                  />
+
+                  {/* Apex 3 Golden Path Options */}
+                  {apexResult && apexResult.options.length > 0 ? (
+                    <div className="space-y-4">
+                      <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                        Top {apexResult.options.length} Golden Path Options
+                      </h4>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {apexResult.options.map((option, idx) => (
+                          <div
+                            key={option.nonce}
+                            onClick={() => setSelectedApexOption(idx)}
+                            className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                              selectedApexOption === idx
+                                ? 'border-emerald-500 bg-emerald-500/10 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                                : 'border-border bg-secondary/40 hover:bg-secondary/60'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <Badge variant={idx === 0 ? 'default' : 'secondary'} className={idx === 0 ? 'bg-yellow-600' : ''}>
+                                {idx === 0 ? '🥇 Best' : idx === 1 ? '🥈 #2' : '🥉 #3'}
+                              </Badge>
+                              <span className="text-xs font-mono text-muted-foreground">
+                                Nonce #{option.nonce}
+                              </span>
+                            </div>
+                            <div className="space-y-1 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Target Safety:</span>
+                                <span className={`font-bold ${
+                                  option.targetSafetyScore === 100 ? 'text-emerald-400' :
+                                  option.targetSafetyScore >= 80 ? 'text-yellow-400' : 'text-red-400'
+                                }`}>
+                                  {option.targetSafetyScore.toFixed(1)}%
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Safe Tiles:</span>
+                                <span className="font-mono">{option.safeTiles.length}/{totalCells}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Mines:</span>
+                                <span className="font-mono text-red-400">{option.mines.join(', ')}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Grid for selected option */}
+                      <div className="mt-4">
+                        <h4 className="text-sm font-semibold mb-2">
+                          Grid View — Option {selectedApexOption + 1} (Nonce #{apexResult.options[selectedApexOption]?.nonce})
+                        </h4>
+                        <MinesGrid
+                          heatMap={heatMap ?? new Array(totalCells).fill(0)}
+                          isCracked={true}
+                          safeTiles={apexResult.options[selectedApexOption]?.safeTiles || []}
+                          gridSize={gridSize}
+                          mineTiles={apexResult.options[selectedApexOption]?.mines || []}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <MinesGrid
+                        heatMap={heatMap ?? new Array(totalCells).fill(0)}
+                        isCracked={hashStatus === 'CRACKED'}
+                        safeTiles={scannerResult?.safePath || []}
+                        gridSize={gridSize}
+                        mineTiles={scannerResult?.nonceScanResults?.[0]?.mines || []}
+                      />
+                      {!revealedServerSeed && (
+                        <p className="text-sm text-muted-foreground text-center">
+                          Provide a revealed server seed to see the top 3 golden path options with exact mine positions.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <FutureChainSidebar predictions={futurePredictions as FuturePrediction[]} />
               </div>

@@ -54,6 +54,21 @@ export interface GameRoundResult {
   kenoScanResults?: KenoScanResult[];
 }
 
+export interface ApexGoldenPathOption {
+  nonce: number;
+  safeTiles: number[];
+  mines: number[];
+  safetyScore: number;       // percentage of total cells that are safe
+  targetSafetyScore: number; // percentage: how many of the target tiles are safe
+}
+
+export interface ApexScanResult {
+  mode: 'DETERMINISTIC' | 'PROBABILISTIC';
+  options: ApexGoldenPathOption[];
+  confidence: number;
+  heatMap?: number[];
+}
+
 const NONCE_LOOK_AHEAD = 400; // Scan 400 nonces for best opportunity
 
 export class MasterController {
@@ -298,6 +313,57 @@ export class MasterController {
       nonceScanResults: scanResults,
       crashScanResults: crashResults,
       kenoScanResults: kenoResults
+    };
+  }
+
+  /**
+   * Apex Scan: Returns the top N safest nonces with detailed stats.
+   * Each option shows the safe tiles, mine positions, and safety percentages.
+   */
+  apexScan(
+    serverSeed: string,
+    clientSeed: string,
+    startNonce: number,
+    targetTiles: number[] = [0, 1, 2, 3, 4],
+    mineCount: number = 3,
+    totalCells: number = 25,
+    topN: number = 3
+  ): ApexScanResult {
+    const allResults: ApexGoldenPathOption[] = [];
+
+    for (let n = startNonce; n < startNonce + NONCE_LOOK_AHEAD; n++) {
+      const mines = generateMinePositions(serverSeed, clientSeed, n, mineCount, totalCells);
+      const allTiles = Array.from({ length: totalCells }, (_, i) => i);
+      const safeTiles = allTiles.filter(t => !mines.includes(t));
+
+      // How many of the target tiles are safe
+      const targetSafe = targetTiles.filter(t => !mines.includes(t));
+      const targetSafetyScore = (targetSafe.length / targetTiles.length) * 100;
+
+      // Overall safety
+      const safetyScore = (safeTiles.length / totalCells) * 100;
+
+      allResults.push({
+        nonce: n,
+        safeTiles,
+        mines,
+        safetyScore,
+        targetSafetyScore
+      });
+    }
+
+    // Sort by target safety (most target tiles safe first), then by nonce
+    allResults.sort((a, b) => {
+      if (b.targetSafetyScore !== a.targetSafetyScore) {
+        return b.targetSafetyScore - a.targetSafetyScore;
+      }
+      return a.nonce - b.nonce; // earlier nonce preferred
+    });
+
+    return {
+      mode: 'DETERMINISTIC',
+      options: allResults.slice(0, topN),
+      confidence: 0.999
     };
   }
 }
