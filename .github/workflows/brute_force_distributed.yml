@@ -1,0 +1,130 @@
+name: Distributed Nonce Scanner
+on:
+  workflow_dispatch:
+    inputs:
+      server_seed:
+        description: 'Revealed server seed (hex)'
+        required: true
+        type: string
+      client_seed:
+        description: 'Client seed'
+        required: true
+        type: string
+      start_nonce:
+        description: 'Starting nonce'
+        required: true
+        default: '0'
+        type: string
+      total_range:
+        description: 'Total nonces to scan'
+        required: true
+        default: '100000'
+        type: string
+      mine_count:
+        description: 'Number of mines'
+        required: true
+        default: '3'
+        type: string
+      total_cells:
+        description: 'Grid size (25 or 64)'
+        required: true
+        default: '25'
+        type: string
+      target_tiles:
+        description: 'Target tiles (comma-separated, e.g. 0,1,2,3,4)'
+        required: true
+        default: '0,1,2,3,4'
+        type: string
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 4 parallel runners, each scanning 1/4 of the range
+        chunk: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Calculate chunk range
+        id: range
+        run: |
+          TOTAL=${{ inputs.total_range }}
+          CHUNK_SIZE=$((TOTAL / 4))
+          START=$((${{ inputs.start_nonce }} + ${{ matrix.chunk }} * CHUNK_SIZE))
+          END=$((START + CHUNK_SIZE))
+          echo "start=$START" >> $GITHUB_OUTPUT
+          echo "end=$END" >> $GITHUB_OUTPUT
+          echo "Scanning nonces $START to $END"
+
+      - name: Run nonce scan
+        run: |
+          npx tsx scripts/distributedScan.ts \
+            --serverSeed "${{ inputs.server_seed }}" \
+            --clientSeed "${{ inputs.client_seed }}" \
+            --startNonce ${{ steps.range.outputs.start }} \
+            --endNonce ${{ steps.range.outputs.end }} \
+            --mineCount ${{ inputs.mine_count }} \
+            --totalCells ${{ inputs.total_cells }} \
+            --targetTiles "${{ inputs.target_tiles }}"
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-results-chunk-${{ matrix.chunk }}
+          path: scan-results.json
+          retention-days: 7
+
+  aggregate:
+    needs: scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download all chunks
+        uses: actions/download-artifact@v4
+        with:
+          path: chunks/
+          pattern: scan-results-chunk-*
+
+      - name: Aggregate results
+        run: |
+          echo "=== DISTRIBUTED SCAN RESULTS ==="
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const chunksDir = 'chunks';
+            const allResults = [];
+            for (const dir of fs.readdirSync(chunksDir)) {
+              const file = path.join(chunksDir, dir, 'scan-results.json');
+              if (fs.existsSync(file)) {
+                const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+                allResults.push(...(data.golden || []));
+                console.log('Chunk', dir, ':', data.scanned, 'scanned,', (data.golden || []).length, 'golden');
+              }
+            }
+            allResults.sort((a, b) => a.nonce - b.nonce);
+            const summary = { totalGolden: allResults.length, results: allResults };
+            fs.writeFileSync('aggregated-results.json', JSON.stringify(summary, null, 2));
+            console.log('\\nTotal golden nonces found:', allResults.length);
+            if (allResults.length > 0) {
+              console.log('First 10:', allResults.slice(0, 10).map(r => '#' + r.nonce).join(', '));
+            }
+          "
+
+      - name: Upload aggregated results
+        uses: actions/upload-artifact@v4
+        with:
+          name: aggregated-scan-results
+          path: aggregated-results.json
+          retention-days: 30

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -6,6 +6,7 @@ import type { Platform, GridSize } from '@/lib/types'
 import { toast } from 'sonner'
 import { generateMinePositions } from '@/utils/fairnessEngine'
 import { ClusterVarianceAnalyzer } from '@/analysis/ClusterVarianceAnalyzer'
+import type { GameRoundResult } from '@/controllers/MasterController'
 
 interface MinesGameProps {
   platform: Platform
@@ -15,6 +16,8 @@ interface MinesGameProps {
   nonce: number
   mineCount: number
   onVerify: () => void
+  analysisResult?: GameRoundResult | null
+  onTargetTilesChange?: (tiles: number[]) => void
 }
 
 export default function MinesGame({
@@ -24,15 +27,81 @@ export default function MinesGame({
   clientSeed,
   nonce,
   mineCount,
-  onVerify
+  onVerify,
+  analysisResult,
+  onTargetTilesChange
 }: MinesGameProps) {
   const [gridSize, setGridSize] = useState<GridSize>(platform === 'roobet' ? 8 : 5)
   const [verifiedMines, setVerifiedMines] = useState<number[]>([])
   const [isVerified, setIsVerified] = useState(false)
   const [probabilityMap, setProbabilityMap] = useState<number[]>([])
+  const [riskTiles, setRiskTiles] = useState<number[]>([])
+  const [safestTiles, setSafestTiles] = useState<number[]>([])
+  const [targetTiles, setTargetTiles] = useState<number[]>([])
+  const [isPainting, setIsPainting] = useState(false)
 
   const totalCells = gridSize * gridSize
   const cva = useMemo(() => new ClusterVarianceAnalyzer(), [])
+
+  // Reset verified state when core inputs change
+  useEffect(() => {
+    setVerifiedMines([])
+    setIsVerified(false)
+    setProbabilityMap([])
+    setRiskTiles([])
+    setSafestTiles([])
+    // Don't reset target tiles when inputs change — user might want to keep them
+  }, [serverSeedHash, clientSeed, nonce, mineCount])
+
+  // Propagate target tiles to parent
+  useEffect(() => {
+    onTargetTilesChange?.(targetTiles)
+  }, [targetTiles, onTargetTilesChange])
+
+  /** Toggle a cell as a target tile (click-to-paint) */
+  const toggleTargetTile = useCallback((cellIndex: number) => {
+    if (!isPainting) return
+    setTargetTiles(prev => {
+      if (prev.includes(cellIndex)) {
+        return prev.filter(t => t !== cellIndex)
+      }
+      return [...prev, cellIndex]
+    })
+  }, [isPainting])
+
+  // Auto-populate from backend analysis results
+  useEffect(() => {
+    if (!analysisResult) return
+
+    // Deterministic: show exact mine positions from nonce scan
+    if (analysisResult.mode === 'DETERMINISTIC' && analysisResult.nonceScanResults?.length) {
+      const currentResult = analysisResult.nonceScanResults.find(r => r.nonce === nonce)
+      if (currentResult) {
+        setVerifiedMines(currentResult.mines)
+        setIsVerified(true)
+        setProbabilityMap([])
+        setRiskTiles([])
+        setSafestTiles([])
+      }
+    }
+
+    // Probabilistic: show heat map + risk tiles
+    if (analysisResult.heatMap?.length === totalCells) {
+      setProbabilityMap(analysisResult.heatMap)
+      if (analysisResult.mode === 'PROBABILISTIC') {
+        setVerifiedMines([])
+        setIsVerified(false)
+        // Calculate risk tiles = exactly mineCount tiles with highest probability
+        const sorted = analysisResult.heatMap
+          .map((prob: number, idx: number) => ({ idx, prob }))
+          .sort((a: { prob: number }, b: { prob: number }) => b.prob - a.prob)
+        const riskCount = mineCount
+        const safeCount = totalCells - mineCount
+        setRiskTiles(sorted.slice(0, riskCount).map((t: { idx: number }) => t.idx))
+        setSafestTiles(sorted.slice(-safeCount).map((t: { idx: number }) => t.idx))
+      }
+    }
+  }, [analysisResult, nonce, totalCells, mineCount])
 
   const handleVerify = () => {
     if (!serverSeedHash || !clientSeed) {
@@ -67,11 +136,36 @@ export default function MinesGame({
       return
     }
 
-    const heatMap = cva.generateDensityMap(totalCells, mineCount, `${clientSeed}:${nonce}`)
-    setProbabilityMap(heatMap)
+    // Run multiple Monte Carlo passes with different seed variations for richer data
+    const iterations = 3
+    const combinedMap = new Array(totalCells).fill(0)
+
+    for (let pass = 0; pass < iterations; pass++) {
+      const seedVariant = pass === 0
+        ? `${clientSeed}:${nonce}`
+        : `${clientSeed}:${nonce}:${pass}`
+      const heatMap = cva.generateDensityMap(totalCells, mineCount, seedVariant)
+      for (let i = 0; i < totalCells; i++) {
+        combinedMap[i] += heatMap[i] / iterations
+      }
+    }
+
+    setProbabilityMap(combinedMap)
     setIsVerified(false)
     setVerifiedMines([])
-    toast.success(`Probability analysis complete for ${gridSize}x${gridSize}`)
+
+    // Calculate risk tiles = exactly mineCount (the most likely tiles to have mines)
+    const sorted = combinedMap
+      .map((prob: number, idx: number) => ({ idx, prob }))
+      .sort((a: { prob: number }, b: { prob: number }) => b.prob - a.prob)
+    const riskCount = mineCount
+    const safeCount = totalCells - mineCount
+    setRiskTiles(sorted.slice(0, riskCount).map((t: { idx: number }) => t.idx))
+    setSafestTiles(sorted.slice(-safeCount).map((t: { idx: number }) => t.idx))
+
+    toast.success(
+      `Probability analysis complete — ${riskCount} risk tiles and ${safeCount} safer tiles identified (${mineCount} mines in ${totalCells} cells)`
+    )
   }
 
   return (
@@ -110,6 +204,18 @@ export default function MinesGame({
         )}
 
         <div className="flex gap-2 ml-auto">
+          <Button
+            variant={isPainting ? 'default' : 'outline'}
+            onClick={() => setIsPainting(!isPainting)}
+            className={isPainting ? 'bg-amber-600 hover:bg-amber-700' : ''}
+          >
+            {isPainting ? '🎯 Painting ON' : '🎯 Paint Targets'}
+          </Button>
+          {targetTiles.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => setTargetTiles([])}>
+              Clear ({targetTiles.length})
+            </Button>
+          )}
           <Button variant="outline" onClick={handleRunProbability}>
             Run Probability Analysis
           </Button>
@@ -126,76 +232,136 @@ export default function MinesGame({
           maxWidth: gridSize <= 5 ? '400px' : gridSize <= 6 ? '480px' : '560px'
         }}
       >
-        {Array.from({ length: totalCells }, (_, i) => {
-          const isMine = verifiedMines.includes(i)
-          const prob = probabilityMap[i] ?? 0
-          const hasProb = probabilityMap.length > 0
-          const safePercent = hasProb ? (1 - prob) * 100 : 0
+        {(() => {
+          const baseRate = mineCount / totalCells;
+          return Array.from({ length: totalCells }, (_, i) => {
+            const isMine = verifiedMines.includes(i)
+            const prob = probabilityMap[i] ?? 0
+            const hasProb = probabilityMap.length > 0
+            const isRisk = riskTiles.includes(i)
+            const isSafest = safestTiles.includes(i)
+            const isTarget = targetTiles.includes(i)
 
-          let displayText: string
-          let bg: string
-          let textColor: string
-          let glow = ''
-          let icon = ''
+            let displayText: string
+            let bg: string
+            let textColor: string
+            let glow = ''
+            let icon = ''
+            let label = ''
+            const cursor = isPainting ? 'cursor-pointer' : 'cursor-default'
 
-          if (isVerified) {
-            if (isMine) {
-              icon = '💣'
-              bg = 'bg-red-700/80 border-red-500'
-              textColor = 'text-red-200'
-              displayText = 'MINE'
+            if (isVerified) {
+              if (isMine) {
+                icon = '💣'
+                bg = 'bg-red-700/80 border-red-500'
+                textColor = 'text-red-200'
+                displayText = 'MINE'
+              } else {
+                icon = '💎'
+                bg = 'bg-emerald-600/80 border-emerald-400'
+                textColor = 'text-emerald-100'
+                glow = 'shadow-[0_0_10px_rgba(16,185,129,0.5)]'
+                displayText = 'SAFE'
+              }
+            } else if (hasProb) {
+              const minePercent = (prob * 100).toFixed(1)
+              displayText = `${minePercent}%`
+
+              if (isTarget) {
+                // User-painted target tile
+                bg = 'bg-amber-600/60 border-amber-400'
+                textColor = 'text-amber-200'
+                icon = '🎯'
+                label = 'TARGET'
+                glow = 'shadow-[0_0_10px_rgba(245,158,11,0.5)]'
+              } else if (isRisk) {
+                bg = 'bg-red-800/60 border-red-500/50'
+                textColor = 'text-red-300'
+                icon = '⚠️'
+                label = 'RISK'
+                glow = 'shadow-[0_0_8px_rgba(239,68,68,0.4)]'
+              } else if (isSafest) {
+                bg = 'bg-emerald-700/50 border-emerald-500/40'
+                textColor = 'text-emerald-200'
+                icon = '✅'
+                label = 'SAFER'
+                glow = 'shadow-[0_0_8px_rgba(16,185,129,0.3)]'
+              } else {
+                bg = 'bg-slate-800 border-slate-600'
+                textColor = 'text-slate-300'
+                icon = ''
+              }
             } else {
-              icon = '💎'
-              bg = 'bg-emerald-600/80 border-emerald-400'
-              textColor = 'text-emerald-100'
-              glow = 'shadow-[0_0_10px_rgba(16,185,129,0.5)]'
-              displayText = 'SAFE'
+              // No analysis yet — show target painting state
+              if (isTarget) {
+                bg = 'bg-amber-600/50 border-amber-400'
+                textColor = 'text-amber-200'
+                displayText = '🎯'
+                icon = ''
+                label = 'TARGET'
+                glow = 'shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+              } else {
+                bg = 'bg-slate-800 border-slate-700'
+                textColor = 'text-slate-400'
+                displayText = '?'
+                icon = ''
+              }
             }
-          } else if (hasProb) {
-            displayText = `${safePercent.toFixed(1)}%`
-            if (safePercent >= 90) {
-              bg = 'bg-emerald-600/60 border-emerald-500/50'
-              textColor = 'text-emerald-100'
-              glow = 'shadow-[0_0_8px_rgba(16,185,129,0.4)] animate-pulse'
-              icon = '💎'
-            } else if (safePercent >= 75) {
-              bg = 'bg-emerald-700/40 border-emerald-600/30'
-              textColor = 'text-emerald-200'
-              icon = '✅'
-            } else if (safePercent >= 60) {
-              bg = 'bg-yellow-700/40 border-yellow-600/30'
-              textColor = 'text-yellow-200'
-              icon = '⚠️'
-            } else if (safePercent >= 40) {
-              bg = 'bg-orange-700/40 border-orange-600/30'
-              textColor = 'text-orange-200'
-              icon = '⚠️'
-            } else {
-              bg = 'bg-red-800/50 border-red-600/30'
-              textColor = 'text-red-300'
-              icon = '💣'
-            }
-          } else {
-            bg = 'bg-slate-800 border-slate-700'
-            textColor = 'text-slate-400'
-            displayText = '?'
-            icon = ''
-          }
 
-          const tileSize = gridSize <= 5 ? 'h-16 w-full' : gridSize <= 6 ? 'h-14 w-full' : 'h-12 w-full'
+            const tileSize = gridSize <= 5 ? 'h-16 w-full' : gridSize <= 6 ? 'h-14 w-full' : 'h-12 w-full'
 
-          return (
-            <div
-              key={i}
-              className={`${bg} ${glow} ${tileSize} flex flex-col items-center justify-center rounded-lg border transition-all duration-300`}
-            >
-              {icon && <span className="text-sm leading-none">{icon}</span>}
-              <span className="text-[9px] text-gray-400 leading-none">#{i}</span>
-              <span className={`text-[10px] font-bold ${textColor} leading-none`}>{displayText}</span>
-            </div>
-          )
-        })}
+            return (
+              <div
+                key={i}
+                onClick={() => toggleTargetTile(i)}
+                className={`${bg} ${glow} ${tileSize} ${cursor} flex flex-col items-center justify-center rounded-lg border transition-all duration-300 ${isPainting ? 'hover:border-amber-400/60 hover:bg-amber-900/20' : ''}`}
+              >
+                {icon && <span className="text-sm leading-none">{icon}</span>}
+                {label && <span className="text-[8px] font-bold uppercase tracking-wide leading-none">{label}</span>}
+                <span className="text-[9px] text-gray-400 leading-none">#{i}</span>
+                <span className={`text-[10px] font-bold ${textColor} leading-none`}>{displayText}</span>
+              </div>
+            )
+          })
+        })()}
       </div>
+
+      {/* Legend */}
+      {(probabilityMap.length > 0 || targetTiles.length > 0) && !isVerified && (
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center gap-4 text-xs flex-wrap">
+            {targetTiles.length > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded bg-amber-600/60 border border-amber-400 inline-block" /> 🎯 Target Tiles ({targetTiles.length})
+              </span>
+            )}
+            {riskTiles.length > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded bg-red-800/60 border border-red-500/50 inline-block" /> ⚠️ Risk Tiles ({riskTiles.length})
+              </span>
+            )}
+            {safestTiles.length > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded bg-emerald-700/50 border border-emerald-500/40 inline-block" /> ✅ Safer Tiles ({safestTiles.length})
+              </span>
+            )}
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded bg-slate-800 border border-slate-600 inline-block" /> Neutral
+            </span>
+          </div>
+          {isPainting && (
+            <p className="text-xs text-amber-400 font-medium">
+              Click tiles to mark them as targets. The scanner will look for nonces where ALL target tiles are safe.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Based on {mineCount} mines in {totalCells} cells. Base rate: {((mineCount / totalCells) * 100).toFixed(1)}% per tile.
+            {!revealedServerSeed && (
+              <span className="text-amber-400 font-medium"> Without a revealed server seed, all tiles have approximately equal probability — risk tiles are based on Monte Carlo sampling variance.</span>
+            )}
+          </p>
+        </div>
+      )}
     </div>
   )
 }

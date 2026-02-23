@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import CryptoJS from 'crypto-js';
 
 /**
  * Multi-Layer Hash Resolution Engine
@@ -15,9 +15,16 @@ export class IntegrityAuditor {
   private hashesBaseUrl = 'https://hashes.com/api/search';
   private nitrxgenBaseUrl = 'https://www.nitrxgen.net/md5db/';
   private localCache: Map<string, string> = new Map();
+  private readonly isBrowser = typeof window !== 'undefined';
 
   constructor() {
-    this.hashesApiKey = process.env.HASHES_API_KEY || '';
+    // Try browser localStorage first, then env var, then hardcoded default
+    const browserKey = typeof window !== 'undefined'
+      ? localStorage.getItem('hashes_api_key')
+      : null;
+    this.hashesApiKey = browserKey
+      || (typeof process !== 'undefined' && process.env?.HASHES_API_KEY)
+      || 'ff5b33e2ea497707f8aa0cb7e9f7b8e88c2f40f2552a9b61111ff48e304ec6519362d0fdc78c0e049f75b227b3c44eff';
   }
 
   /**
@@ -39,6 +46,10 @@ export class IntegrityAuditor {
       this.localCache.set(normalizedHash, dbMatch);
       console.log(`[IntegrityAuditor] Layer 2 HIT (SQLite): ${normalizedHash.slice(0, 16)}...`);
       return dbMatch;
+    }
+
+    if (this.isBrowser) {
+      return null;
     }
 
     // Layer 3: Hashes.com API (paid, high coverage)
@@ -92,8 +103,14 @@ export class IntegrityAuditor {
    */
   private async queryHashesCom(hash: string): Promise<string | null> {
     try {
+      const rawUrl = `${this.hashesBaseUrl}?key=${this.hashesApiKey}&hash=${hash}`;
+      // In browser, route through CORS proxy
+      const endpoint = this.isBrowser
+        ? this.buildProxiedUrl(rawUrl)
+        : rawUrl;
+
       const response = await fetch(
-        `${this.hashesBaseUrl}?key=${this.hashesApiKey}&hash=${hash}`,
+        endpoint,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -116,9 +133,16 @@ export class IntegrityAuditor {
    * Returns plaintext directly in response body if found, empty string if not.
    */
   private async queryNitrxgen(hash: string): Promise<string | null> {
+    if (!/^[a-f0-9]{32}$/.test(hash)) {
+      return null;
+    }
+
     try {
+      const rawUrl = `${this.nitrxgenBaseUrl}${hash}`;
+      const endpoint = this.isBrowser ? this.buildProxiedUrl(rawUrl) : rawUrl;
+
       const response = await fetch(
-        `${this.nitrxgenBaseUrl}${hash}`,
+        endpoint,
         {
           method: 'GET',
           signal: AbortSignal.timeout(5000),
@@ -143,7 +167,7 @@ export class IntegrityAuditor {
    * Verify that a plaintext hashes to the expected SHA-256 hash.
    */
   verifyHash(plaintext: string, expectedHash: string): boolean {
-    const computed = crypto.createHash('sha256').update(plaintext).digest('hex');
+    const computed = CryptoJS.SHA256(plaintext).toString(CryptoJS.enc.Hex);
     return computed === expectedHash.toLowerCase();
   }
 
@@ -152,6 +176,16 @@ export class IntegrityAuditor {
    */
   registerSeed(plaintext: string, hash: string): void {
     this.localCache.set(hash.toLowerCase(), plaintext);
+  }
+
+  /**
+   * Wrap a URL through the configured CORS proxy for browser requests.
+   */
+  private buildProxiedUrl(targetUrl: string): string {
+    const proxyPrefix = (typeof window !== 'undefined' && localStorage.getItem('cors_proxy'))
+      || 'https://corsproxy.io/?key=f02f2d8a&url=';
+    if (!proxyPrefix) return targetUrl;
+    return proxyPrefix + encodeURIComponent(targetUrl);
   }
 
   /**
@@ -172,7 +206,7 @@ if (typeof process !== 'undefined' && process.argv[1]?.includes('IntegrityAudito
     const auditor = new IntegrityAuditor();
 
     // Demo: SHA-256 of 'test'
-    const testHash = crypto.createHash('sha256').update('test').digest('hex');
+    const testHash = CryptoJS.SHA256('test').toString(CryptoJS.enc.Hex);
     console.log(`Test hash (SHA-256 of "test"): ${testHash}`);
 
     // Register it manually to demonstrate caching

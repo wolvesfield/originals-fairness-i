@@ -2,31 +2,90 @@ import CryptoJS from 'crypto-js';
 
 /**
  * UHF Operational Brain — Enhanced for All Games
- * Handles Mines (25/36/49/64), Keno (1-40), Crash multipliers
+ * Uses IDENTICAL algorithms to fairnessEngine.ts (Fisher-Yates for Mines,
+ * Set-based collision avoidance for Keno, industry-standard Crash formula).
+ *
+ * Supports:
+ *  - SCAN_CHUNK: brute-force nonce scanning
+ *  - Progress reporting via SharedArrayBuffer (Atomics)
+ *  - Truncated search: early-exit heuristic for Mines
  */
-self.onmessage = (event) => {
-  const { type, payload } = event.data;
+
+/* ── Types ── */
+interface ScanPayload {
+  startNonce: number;
+  endNonce: number;
+  serverSeed: string;
+  clientSeed: string;
+  targetPattern: number[];
+  gameType?: 'MINES' | 'KENO' | 'CRASH';
+  gameConfig?: {
+    mineCount?: number;
+    totalCells?: number;
+    drawCount?: number;
+    maxNum?: number;
+    targetMultiplier?: number;
+    minKenoHits?: number;
+  };
+  progressBuffer?: SharedArrayBuffer; // Int32Array: [0]=scanned, [1]=found (0/1), [2]=foundNonce
+}
+
+self.onmessage = (event: MessageEvent) => {
+  const { type, payload } = event.data as { type: string; payload: ScanPayload };
 
   if (type === 'SCAN_CHUNK') {
-    const { startNonce, endNonce, serverSeed, clientSeed, targetPattern, gameType, gameConfig } = payload;
+    const {
+      startNonce, endNonce, serverSeed, clientSeed, targetPattern,
+      gameType = 'MINES', gameConfig = {}, progressBuffer
+    } = payload;
+
+    // Optional SharedArrayBuffer for progress tracking
+    let progress: Int32Array | null = null;
+    if (progressBuffer) {
+      progress = new Int32Array(progressBuffer);
+    }
 
     for (let nonce = startNonce; nonce <= endNonce; nonce++) {
-      const hash = generateHMAC(serverSeed, `${clientSeed}:${nonce}:0`);
+      // Check if another worker already found a result (kill-switch via Atomics)
+      if (progress && Atomics.load(progress, 1) === 1) {
+        self.postMessage({ found: false, earlyExit: true });
+        return;
+      }
+
       let isGold = false;
 
-      switch (gameType || 'MINES') {
-        case 'MINES':
-          isGold = validateMinesState(hash, targetPattern, gameConfig?.mineCount || 3);
+      switch (gameType) {
+        case 'MINES': {
+          const mineCount = gameConfig.mineCount ?? 3;
+          const totalCells = gameConfig.totalCells ?? 25;
+          isGold = validateMinesState(serverSeed, clientSeed, nonce, targetPattern, mineCount, totalCells);
           break;
-        case 'KENO':
-          isGold = validateKenoState(hash, targetPattern, gameConfig?.drawCount || 10);
+        }
+        case 'KENO': {
+          const drawCount = gameConfig.drawCount ?? 20;
+          const maxNum = gameConfig.maxNum ?? 40;
+          const minHits = gameConfig.minKenoHits ?? Math.ceil(targetPattern.length * 0.5);
+          isGold = validateKenoState(serverSeed, clientSeed, nonce, targetPattern, drawCount, maxNum, minHits);
           break;
-        case 'CRASH':
-          isGold = validateCrashState(hash, gameConfig?.targetMultiplier || 2.0);
+        }
+        case 'CRASH': {
+          const targetMultiplier = gameConfig.targetMultiplier ?? 2.0;
+          isGold = validateCrashState(serverSeed, clientSeed, nonce, targetMultiplier);
           break;
+        }
+      }
+
+      // Report progress
+      if (progress) {
+        Atomics.add(progress, 0, 1);
       }
 
       if (isGold) {
+        // Signal found via Atomics so other workers can stop
+        if (progress) {
+          Atomics.store(progress, 1, 1);
+          Atomics.store(progress, 2, nonce);
+        }
         self.postMessage({ found: true, nonce, safePath: targetPattern });
         return;
       }
@@ -35,64 +94,137 @@ self.onmessage = (event) => {
   }
 };
 
-function generateHMAC(key: string, message: string): string {
-  return CryptoJS.HmacSHA256(message, key).toString(CryptoJS.enc.Hex);
+// ─────────────────────────────────────────────────────────────────────────────
+// Core crypto — matches fairnessEngine.ts exactly
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
+ */
+function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
 }
 
-function validateMinesState(hash: string, targetPattern: number[], mineCount: number): boolean {
-  const mines = mapHashToMines(hash, mineCount, 25);
-  return !targetPattern.some((tile) => mines.includes(tile));
+/**
+ * Convert first 4 bytes (8 hex chars) to float in [0, 1).
+ * int(first_8_hex) / 2^32
+ */
+function hashToFloat(hash: string): number {
+  const slice = hash.slice(0, 8);
+  const int = parseInt(slice, 16);
+  return int / 4294967296;
 }
 
-function validateKenoState(hash: string, selectedNumbers: number[], drawCount: number): boolean {
-  const drawn = mapHashToKenoNumbers(hash, drawCount);
-  const hits = selectedNumbers.filter((n) => drawn.includes(n));
-  return hits.length >= Math.ceil(selectedNumbers.length * 0.6);
+/**
+ * Generate Nth deterministic float for a given round.
+ */
+function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
+  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
+  return hashToFloat(hash);
 }
 
-function validateCrashState(hash: string, targetMultiplier: number): boolean {
-  const multiplier = mapHashToCrashMultiplier(hash);
+// ─────────────────────────────────────────────────────────────────────────────
+// Mines — Fisher-Yates shuffle (identical to fairnessEngine.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Returns mineCount unique cell indices using Fisher-Yates shuffle.
+ * Consumes one float per swap via incrementing cursor.
+ */
+function generateMinePositions(
+  serverSeed: string, clientSeed: string, nonce: number,
+  mineCount: number, totalCells: number
+): number[] {
+  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  let cursor = 0;
+
+  for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const j = Math.floor(float * (i + 1));
+    [cells[i], cells[j]] = [cells[j], cells[i]];
+  }
+
+  return cells.slice(totalCells - mineCount);
+}
+
+/**
+ * Truncated search: early-exit if any target tile is already in a mine swap
+ * position BEFORE finishing all mineCount iterations. This avoids computing
+ * all mine positions when we can already tell a target tile is mined.
+ */
+function validateMinesState(
+  serverSeed: string, clientSeed: string, nonce: number,
+  targetPattern: number[], mineCount: number, totalCells: number
+): boolean {
+  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  let cursor = 0;
+  const targetSet = new Set(targetPattern);
+
+  for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const j = Math.floor(float * (i + 1));
+    [cells[i], cells[j]] = [cells[j], cells[i]];
+
+    // Truncated search: if this mine position is a target tile, fail early
+    if (targetSet.has(cells[i])) {
+      return false;
+    }
+  }
+
+  return true; // No target tiles are mines
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Keno — Set-based collision avoidance (identical to fairnessEngine.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function generateKenoNumbers(
+  serverSeed: string, clientSeed: string, nonce: number,
+  count: number, maxNum: number
+): number[] {
+  const drawn = new Set<number>();
+  let cursor = 0;
+
+  while (drawn.size < count) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+    drawn.add(num);
+  }
+
+  return Array.from(drawn);
+}
+
+function validateKenoState(
+  serverSeed: string, clientSeed: string, nonce: number,
+  selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
+): boolean {
+  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
+  const drawnSet = new Set(drawn);
+  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
+  return hits.length >= minHits;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Crash — industry standard (identical to fairnessEngine.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function validateCrashState(
+  serverSeed: string, clientSeed: string, nonce: number,
+  targetMultiplier: number
+): boolean {
+  const message = `${clientSeed}:${nonce}`;
+  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+
+  const h = parseInt(hash.slice(0, 13), 16);
+
+  // House edge: ~3% instant crash
+  if (h % 33 === 0) return 1.0 >= targetMultiplier;
+
+  const TWO_52 = Math.pow(2, 52);
+  const multiplier = Math.max(1, Math.floor((100 * TWO_52 - h) / (TWO_52 - h)) / 100);
   return multiplier >= targetMultiplier;
-}
-
-function mapHashToMines(hash: string, mineCount: number, gridSize: number): number[] {
-  const allPositions = Array.from({ length: gridSize }, (_, i) => i);
-  const mines: number[] = [];
-  let hashIndex = 0;
-
-  while (mines.length < mineCount) {
-    const segment = hash.substring(hashIndex, hashIndex + 2);
-    const pointer = parseInt(segment, 16) % allPositions.length;
-    mines.push(allPositions.splice(pointer, 1)[0]);
-    hashIndex += 2;
-    if (hashIndex >= 60) {
-      hash = CryptoJS.SHA256(hash).toString(CryptoJS.enc.Hex);
-      hashIndex = 0;
-    }
-  }
-  return mines;
-}
-
-function mapHashToKenoNumbers(hash: string, drawCount: number): number[] {
-  const allNumbers = Array.from({ length: 40 }, (_, i) => i + 1);
-  const drawn: number[] = [];
-  let hashIndex = 0;
-
-  while (drawn.length < drawCount) {
-    const segment = hash.substring(hashIndex, hashIndex + 2);
-    const pointer = parseInt(segment, 16) % allNumbers.length;
-    drawn.push(allNumbers.splice(pointer, 1)[0]);
-    hashIndex += 2;
-    if (hashIndex >= 60) {
-      hash = CryptoJS.SHA256(hash).toString(CryptoJS.enc.Hex);
-      hashIndex = 0;
-    }
-  }
-  return drawn;
-}
-
-function mapHashToCrashMultiplier(hash: string): number {
-  const h = parseInt(hash.substring(0, 13), 16);
-  const e = Math.pow(2, 52);
-  return Math.max(1, Math.floor((100 * e - h) / (e - h)) / 100);
 }

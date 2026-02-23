@@ -84,4 +84,38 @@ export default defineConfig({
   ssr: {
     external: ['better-sqlite3']
   },
+  server: {
+    headers: {
+      // Required for SharedArrayBuffer support in Web Workers
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    }
+  },
+  preview: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-radix': [
+            '@radix-ui/react-accordion',
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-dropdown-menu',
+            '@radix-ui/react-popover',
+            '@radix-ui/react-select',
+            '@radix-ui/react-tabs',
+            '@radix-ui/react-tooltip',
+          ],
+          'vendor-crypto': ['crypto-js', 'ethers'],
+          'vendor-charts': ['recharts', 'd3'],
+          'vendor-animation': ['framer-motion', 'three'],
+        },
+      },
+    },
+  },
 });

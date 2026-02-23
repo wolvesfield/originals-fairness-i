@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, copilot/fix-deployment-errors, 'feat/**']
   workflow_dispatch:
 
 permissions:
@@ -27,6 +27,11 @@ jobs:
           cache: "npm"
       - name: Install dependencies
         run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm test
+        continue-on-error: true
       - name: Build
         run: npm run build
         env:

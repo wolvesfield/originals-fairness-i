@@ -1,0 +1,51 @@
+---
+description: Agent behavior, QA workflow, and tech stack (lint/build/CI)
+alwaysApply: true
+---
+
+# Agent Behavior & Tech Stack
+
+## Scope
+
+Treat tasks end-to-end: plan, implement, run checks, verify. Do not stop after a single edit unless the user explicitly asks for a single step.
+
+## Tech Stack (this repo)
+
+| Layer | Tool | Commands |
+|-------|------|----------|
+| Runtime | Node 20 | `node`, `npx`, `tsx` |
+| Package manager | npm | `npm ci`, `npm run <script>` |
+| Build | TypeScript + Vite | `npm run build` → `tsc -b --noCheck && vite build` |
+| Lint | ESLint 9 | `npm run lint` → `eslint .` |
+| Tests | Jest (devDep) | No `test` script yet; add `npm test` when tests exist |
+| Python | 3.12 (CI) | `pip install -r requirements.txt`; scripts use scipy, numpy |
+| CI | GitHub Actions | Deploy (build), audit_pipeline (baseline + audit + alert), brute_force_distributed (scan) |
+
+## After Code Changes
+
+1. **Lint**: Run `npm run lint` via the Shell tool. Fix new ESLint errors when feasible.
+2. **Build**: For changes that affect the app bundle, run `npm run build` to ensure TypeScript and Vite build succeed (CI runs this on push to main / copilot/fix-deployment-errors).
+3. **Linter diagnostics**: Use the ReadLints tool on edited paths and address reported issues when appropriate.
+
+If the project gains a `test` script (e.g. `npm test`), run it after non-trivial code changes and treat failures as described in the debug-tests-autofix skill.
+
+## When Checks Fail
+
+- **Lint/build failures**: Read the failure output, identify root cause, apply a fix, then re-run the same command. Attempt at least two repair iterations before concluding the task is blocked or escalating.
+- **UI issues**: Use cursor-ide-browser MCP tools (`browser_snapshot`, `browser_click`, `browser_navigate`, etc.) to reproduce, then re-verify after the fix.
+
+## External Docs
+
+- Prefer **Context7** MCP (`query-docs`, `resolve-library-id`) for library/API questions instead of guessing.
+- For Phantom-related flows, use the **Phantom docs** MCP (`SearchPhantomDeveloper`) when relevant.
+
+## Task Management
+
+- For multi-step or complex tasks (3+ distinct steps), use an explicit todo list and update it as steps complete.
+- Keep user-facing summaries short; avoid pasting large code blocks unless asked.
+
+## Repo Conventions
+
+- Scripts: TypeScript run with `tsx` (e.g. `npm run baseline`, `npm run audit`); Python for entropy/stake scripts.
+- CI deploy branch: `main` and `copilot/fix-deployment-errors` trigger GitHub Pages deploy.
+- Windows: Prefer forward slashes in paths and commands that run in PowerShell.
