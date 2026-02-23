@@ -137,11 +137,16 @@ export default function CrashGame({
 
   return (
     <div className="space-y-6">
+      {!revealedServerSeed && (
+        <p className="text-sm text-amber-600 dark:text-amber-400">
+          Fill Server Seed Hash + Client Seed + Nonce above, then run <strong>Analyze Game State</strong> (or paste revealed seed) so Crash can verify the multiplier.
+        </p>
+      )}
       <div>
-        <Button 
-          onClick={handleVerify} 
+        <Button
+          onClick={handleVerify}
           className="bg-primary hover:bg-primary/90"
-          disabled={isAnimating}
+          disabled={isAnimating || !revealedServerSeed}
         >
           <Check size={20} className="mr-2" />
           {isAnimating ? 'Running...' : 'Verify Crash'}

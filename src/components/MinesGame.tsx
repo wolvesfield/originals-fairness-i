@@ -39,6 +39,7 @@ export default function MinesGame({
   const [safestTiles, setSafestTiles] = useState<number[]>([])
   const [targetTiles, setTargetTiles] = useState<number[]>([])
   const [isPainting, setIsPainting] = useState(false)
+  const [isRunningProbability, setIsRunningProbability] = useState(false)
 
   const totalCells = gridSize * gridSize
   const cva = useMemo(() => new ClusterVarianceAnalyzer(), [])
@@ -136,11 +137,30 @@ export default function MinesGame({
       return
     }
 
-    // Run multiple Monte Carlo passes with different seed variations for richer data
+    setIsVerified(false)
+    setVerifiedMines([])
+    setIsRunningProbability(true)
+
     const iterations = 3
     const combinedMap = new Array(totalCells).fill(0)
+    let pass = 0
 
-    for (let pass = 0; pass < iterations; pass++) {
+    const runNextPass = () => {
+      if (pass >= iterations) {
+        const sorted = combinedMap
+          .map((prob: number, idx: number) => ({ idx, prob }))
+          .sort((a: { prob: number }, b: { prob: number }) => b.prob - a.prob)
+        const riskCount = mineCount
+        const safeCount = totalCells - mineCount
+        setProbabilityMap([...combinedMap])
+        setRiskTiles(sorted.slice(0, riskCount).map((t: { idx: number }) => t.idx))
+        setSafestTiles(sorted.slice(-safeCount).map((t: { idx: number }) => t.idx))
+        setIsRunningProbability(false)
+        toast.success(
+          `Probability analysis complete — ${riskCount} risk tiles and ${safeCount} safer tiles (${mineCount} mines in ${totalCells} cells)`
+        )
+        return
+      }
       const seedVariant = pass === 0
         ? `${clientSeed}:${nonce}`
         : `${clientSeed}:${nonce}:${pass}`
@@ -148,24 +168,11 @@ export default function MinesGame({
       for (let i = 0; i < totalCells; i++) {
         combinedMap[i] += heatMap[i] / iterations
       }
+      pass += 1
+      setTimeout(runNextPass, 0)
     }
 
-    setProbabilityMap(combinedMap)
-    setIsVerified(false)
-    setVerifiedMines([])
-
-    // Calculate risk tiles = exactly mineCount (the most likely tiles to have mines)
-    const sorted = combinedMap
-      .map((prob: number, idx: number) => ({ idx, prob }))
-      .sort((a: { prob: number }, b: { prob: number }) => b.prob - a.prob)
-    const riskCount = mineCount
-    const safeCount = totalCells - mineCount
-    setRiskTiles(sorted.slice(0, riskCount).map((t: { idx: number }) => t.idx))
-    setSafestTiles(sorted.slice(-safeCount).map((t: { idx: number }) => t.idx))
-
-    toast.success(
-      `Probability analysis complete — ${riskCount} risk tiles and ${safeCount} safer tiles identified (${mineCount} mines in ${totalCells} cells)`
-    )
+    runNextPass()
   }
 
   return (
@@ -203,23 +210,32 @@ export default function MinesGame({
           </div>
         )}
 
-        <div className="flex gap-2 ml-auto">
+        <div className="flex flex-wrap gap-2 ml-auto items-center">
           <Button
             variant={isPainting ? 'default' : 'outline'}
             onClick={() => setIsPainting(!isPainting)}
             className={isPainting ? 'bg-amber-600 hover:bg-amber-700' : ''}
+            title="Click tiles on the grid to mark which ones you might pick; probability analysis uses these."
           >
-            {isPainting ? '🎯 Painting ON' : '🎯 Paint Targets'}
+            {isPainting ? 'Selecting tiles…' : 'Select tiles for analysis'}
           </Button>
           {targetTiles.length > 0 && (
             <Button variant="ghost" size="sm" onClick={() => setTargetTiles([])}>
               Clear ({targetTiles.length})
             </Button>
           )}
-          <Button variant="outline" onClick={handleRunProbability}>
-            Run Probability Analysis
+          <Button
+            variant="outline"
+            onClick={handleRunProbability}
+            disabled={isRunningProbability || !serverSeedHash || !clientSeed}
+          >
+            {isRunningProbability ? 'Running…' : 'Run probability analysis'}
           </Button>
-          <Button onClick={handleVerify} disabled={!revealedServerSeed}>
+          <Button
+            onClick={handleVerify}
+            disabled={!revealedServerSeed}
+            title={revealedServerSeed ? 'Verify mine positions for this nonce' : 'Need revealed server seed — run Analyze Game State above or paste from a settled bet'}
+          >
             Verify Mines
           </Button>
         </div>

@@ -12,7 +12,7 @@ import CryptoJS from 'crypto-js';
  */
 export class IntegrityAuditor {
   private hashesApiKey: string;
-  private hashesBaseUrl = 'https://hashes.com/api/search';
+  private hashesBaseUrl = 'https://hashes.com/en/api/search';
   private nitrxgenBaseUrl = 'https://www.nitrxgen.net/md5db/';
   private localCache: Map<string, string> = new Map();
   private readonly isBrowser = typeof window !== 'undefined';
@@ -40,19 +40,17 @@ export class IntegrityAuditor {
       return cached;
     }
 
-    // Layer 2: Local SQLite database of verified seeds
-    const dbMatch = await this.checkLocalDatabase(normalizedHash);
-    if (dbMatch) {
-      this.localCache.set(normalizedHash, dbMatch);
-      console.log(`[IntegrityAuditor] Layer 2 HIT (SQLite): ${normalizedHash.slice(0, 16)}...`);
-      return dbMatch;
+    // Layer 2: Local SQLite database of verified seeds (Node only; skip in browser)
+    if (!this.isBrowser) {
+      const dbMatch = await this.checkLocalDatabase(normalizedHash);
+      if (dbMatch) {
+        this.localCache.set(normalizedHash, dbMatch);
+        console.log(`[IntegrityAuditor] Layer 2 HIT (SQLite): ${normalizedHash.slice(0, 16)}...`);
+        return dbMatch;
+      }
     }
 
-    if (this.isBrowser) {
-      return null;
-    }
-
-    // Layer 3: Hashes.com API (paid, high coverage)
+    // Layer 3: Hashes.com API (paid hash lookup — works in browser via CORS proxy)
     if (this.hashesApiKey) {
       const hashesResult = await this.queryHashesCom(normalizedHash);
       if (hashesResult) {
@@ -109,14 +107,10 @@ export class IntegrityAuditor {
         ? this.buildProxiedUrl(rawUrl)
         : rawUrl;
 
-      const response = await fetch(
-        endpoint,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(5000),
-        }
-      );
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        signal: AbortSignal.timeout(8000),
+      });
       const data = await response.json();
       if (data.success && data.result) {
         return data.result;
@@ -133,7 +127,7 @@ export class IntegrityAuditor {
    * Returns plaintext directly in response body if found, empty string if not.
    */
   private async queryNitrxgen(hash: string): Promise<string | null> {
-    if (!/^[a-f0-9]{32}$/.test(hash)) {
+    if (!/^[a-f0-9]{32}$/.test(hash) && !/^[a-f0-9]{64}$/.test(hash)) {
       return null;
     }
 

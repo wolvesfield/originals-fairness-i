@@ -30,9 +30,71 @@ interface StakeMyBetsProps {
   corsProxy?: string
 }
 
+/** Parse pasted JSON from Stake (GraphQL response or user/bet list). No proxy/token needed. */
+function parsePastedStakeJson(raw: string): { activePair: StakeActiveSeedPair | null; bets: StakeBet[] } {
+  const trimmed = raw.trim()
+  if (!trimmed) return { activePair: null, bets: [] }
+  let data: unknown
+  try {
+    data = JSON.parse(trimmed)
+  } catch {
+    throw new Error('Invalid JSON. Paste the full Response from a stake.com request (e.g. graphql or active-bet).')
+  }
+  const obj = data as Record<string, unknown>
+  const user = (obj?.data as Record<string, unknown>)?.user ?? obj?.user ?? obj
+  if (!user || typeof user !== 'object') {
+    throw new Error('No user or bet data found. Paste the Response body from Stake.com DevTools (F12 → Network → click a request → Response).')
+  }
+  const u = user as Record<string, unknown>
+  const activeServerSeed = u?.activeServerSeed as { seedHash?: string; nonce?: number } | undefined
+  const activeClientSeed = u?.activeClientSeed as { seed?: string } | undefined
+  const previousServerSeed = u?.previousServerSeed as { seed?: string; seedHash?: string; nonce?: number } | undefined
+  const houseBetList = (u?.houseBetList ?? obj?.houseBetList ?? []) as Array<Record<string, unknown>>
+  const bets: StakeBet[] = Array.isArray(houseBetList)
+    ? houseBetList.map((bet: Record<string, unknown>) => {
+        const serverSeed = bet?.serverSeed as { seedHash?: string; seed?: string } | undefined
+        const clientSeed = bet?.clientSeed as { seed?: string } | undefined
+        const game = bet?.game as { slug?: string; name?: string } | undefined
+        return {
+          serverSeedHash: serverSeed?.seedHash ?? '',
+          clientSeed: clientSeed?.seed ?? '',
+          nonce: typeof bet?.nonce === 'number' ? bet.nonce : parseInt(String(bet?.nonce), 10) || 0,
+          game: game?.slug ?? game?.name ?? 'unknown',
+          createdAt: typeof bet?.createdAt === 'string' ? bet.createdAt : undefined,
+          payout: bet?.payoutMultiplier != null ? parseFloat(String(bet.payoutMultiplier)) : undefined,
+          revealedServerSeed: serverSeed?.seed
+        }
+      }).filter((b: StakeBet & { revealedServerSeed?: string }) => b.serverSeedHash || b.clientSeed)
+    : []
+
+  const hasActive = activeServerSeed?.seedHash && activeClientSeed?.seed
+  const activePair: StakeActiveSeedPair | null = hasActive
+    ? {
+        serverSeedHash: activeServerSeed.seedHash ?? '',
+        clientSeed: activeClientSeed.seed ?? '',
+        nonce: typeof activeServerSeed.nonce === 'number' ? activeServerSeed.nonce : 0,
+        previousServerSeed: previousServerSeed?.seed,
+        previousServerSeedHash: previousServerSeed?.seedHash,
+        previousNonce: previousServerSeed?.nonce
+      }
+    : null
+
+  if (!activePair && bets.length === 0) {
+    const hasUser = !!(u?.id || u?.activeClientSeed || u?.activeServerSeed || u?.activeCasinoBets)
+    throw new Error(
+      hasUser
+        ? 'Found user data but no active seeds. Copy the Response from a graphql request that returns activeServerSeed and activeClientSeed (e.g. GetUser / user seed query).'
+        : 'Could not find user, active seeds or bet list. Paste the full Response from a Stake.com graphql or bet request.'
+    )
+  }
+  return { activePair, bets }
+}
+
 const DEFAULT_STAKE_TOKEN = 'cf3f4d5a42f40a19ad83c94c285826a8d62d003f24260e6aa46f732bb2f681a434bacc48441c27824ab6c434776736e9'
 
 export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://corsproxy.io/?' }: StakeMyBetsProps) {
+  const [pastedJson, setPastedJson] = useState('')
+  const [pasteError, setPasteError] = useState<string | null>(null)
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('stake_auth_token') || DEFAULT_STAKE_TOKEN)
   const [isLoading, setIsLoading] = useState(false)
   const [betHistory, setBetHistory] = useState<StakeBet[]>([])
@@ -196,15 +258,78 @@ export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://corspro
     toast.success(`Applied bet seed data (nonce #${bet.nonce})`)
   }
 
+  const handleUsePasted = () => {
+    setPasteError(null)
+    setError(null)
+    try {
+      const { activePair: pair, bets: parsedBets } = parsePastedStakeJson(pastedJson)
+      setActivePair(pair)
+      setBetHistory(parsedBets)
+      const count = parsedBets.length
+      const hasActive = !!pair
+      toast.success(hasActive && count ? `Loaded active seeds + ${count} bets` : hasActive ? 'Loaded active seeds' : `Loaded ${count} bets`)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to parse pasted data'
+      setPasteError(msg)
+      toast.error(msg)
+    }
+  }
+
   return (
     <Card className="p-6">
       <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
         🎰 Stake.com — My Bets Integration
       </h2>
 
-      {/* Auth Token */}
+      {/* Easiest: Bookmarklets + paste — no proxy */}
+      <div className="mb-6 p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30 space-y-4">
+        <h3 className="text-sm font-semibold text-emerald-400">Get seeds from Stake (no proxy)</h3>
+
+        <div className="rounded bg-black/30 p-3 text-sm space-y-2">
+          <p className="font-medium text-white">Step 1 — Drag to bookmarks bar</p>
+          <p className="text-muted-foreground text-xs">The bookmarks bar is under the browser address bar. Drag one of these links there (like saving a bookmark):</p>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <a
+              href={typeof window !== 'undefined' ? `javascript:(function(){fetch('https://stake.com/_api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:'query{user{activeServerSeed{seedHash nonce}activeClientSeed{seed}}}'})}).then(r=>r.json()).then(d=>{var u=d&&d.data&&d.data.user;if(!u||!u.activeServerSeed){alert('Log in on stake.com first');return;}var h=u.activeServerSeed.seedHash,c=(u.activeClientSeed&&u.activeClientSeed.seed)||'',n=u.activeServerSeed.nonce||0;var p=encodeURIComponent(btoa(JSON.stringify({hash:h,client:c,nonce:n})));window.open('${(window.location.origin + window.location.pathname.replace(/\/$/, ''))}/#stake='+p,'_blank');}).catch(e=>alert('Error: '+e.message));})();` : '#'}
+              className="inline-block px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium border-2 border-emerald-400"
+            >
+              Load active seeds
+            </a>
+            <a
+              href={typeof window !== 'undefined' ? `javascript:(function(){var q=encodeURIComponent('query HouseBetList($offset:Int,$limit:Int){user{houseBetList(offset:$offset,limit:$limit){id nonce createdAt payout payoutMultiplier game{slug name}serverSeed{seedHash seed}clientSeed{seed}}}');fetch('https://stake.com/_api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:decodeURIComponent(q),variables:{offset:0,limit:50}})}).then(r=>r.json()).then(d=>{if(!d.data||!d.data.user){alert('Log in on stake.com first');return;}var j=JSON.stringify(d);navigator.clipboard.writeText(j).then(function(){alert('Bet history copied! Paste it in the PASTE HERE box in the app and click Use pasted data.');}).catch(function(){prompt('Copy this JSON and paste it in the app:',j);});}).catch(e=>alert('Error: '+e.message));})();` : '#'}
+              className="inline-block px-4 py-2 rounded-md bg-sky-600 hover:bg-sky-500 text-white font-medium border-2 border-sky-400"
+            >
+              Load bet history
+            </a>
+          </div>
+        </div>
+
+        <div className="rounded bg-black/30 p-3 text-sm space-y-2">
+          <p className="font-medium text-white">Step 2 — On stake.com, click the bookmark</p>
+          <p className="text-muted-foreground text-xs">Open stake.com, log in, then click the bookmark you saved. &quot;Load active seeds&quot; opens this app with seeds filled. &quot;Load bet history&quot; copies JSON to the clipboard.</p>
+        </div>
+
+        <div className="rounded bg-black/30 p-3 text-sm space-y-2">
+          <p className="font-medium text-white">Step 3 — Paste here (the big box below)</p>
+          <p className="text-muted-foreground text-xs">If you used &quot;Load bet history&quot;, press Ctrl+V (or Cmd+V) in the box below. Then click &quot;Use pasted data&quot;.</p>
+          <Label className="block text-base font-bold text-emerald-300 pt-2">▼ PASTE HERE ▼</Label>
+          <textarea
+            value={pastedJson}
+            onChange={(e) => { setPastedJson(e.target.value); setPasteError(null) }}
+            placeholder="Paste JSON here (from bookmark or from DevTools → Network → graphql → Response)"
+            className="w-full min-h-[120px] rounded-md border-2 border-emerald-500/50 bg-background px-3 py-2 font-mono text-xs"
+            rows={5}
+          />
+        </div>
+        {pasteError && <p className="text-xs text-red-400">{pasteError}</p>}
+        <Button className="w-full sm:w-auto" onClick={handleUsePasted} disabled={!pastedJson.trim()}>
+          Use pasted data
+        </Button>
+      </div>
+
+      {/* Or fetch with token (needs proxy) */}
       <div className="space-y-2 mb-4">
-        <Label htmlFor="stake-token">Auth Token (x-access-token)</Label>
+        <Label htmlFor="stake-token">Or: Fetch with token (needs proxy in API Connections)</Label>
         <div className="flex gap-2">
           <Input
             id="stake-token"
@@ -309,7 +434,7 @@ export default function StakeMyBets({ onApplySeeds, corsProxy = 'https://corspro
 
       {!activePair && betHistory.length === 0 && !isLoading && !error && (
         <p className="text-sm text-muted-foreground text-center py-4">
-          Enter your auth token and click &quot;Fetch My Bets&quot; to pull seed data from Stake.com
+          Use <strong>Paste from Stake</strong> above (no proxy), or enter a token and click Fetch.
         </p>
       )}
     </Card>

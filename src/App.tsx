@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useKV } from '@github/spark/hooks'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card } from '@/components/ui/card'
@@ -71,6 +71,20 @@ function App() {
   // Use user-painted tiles if any, otherwise fall back to defaults
   const targetTiles = userTargetTiles.length > 0 ? userTargetTiles : defaultTargetTiles
   const probabilisticHeatmapReady = (heatMap ?? []).some((v: number) => v > 0)
+
+  // Apply seeds from bookmarklet: open app with #stake=<base64(json)>
+  useEffect(() => {
+    const hash = typeof window !== 'undefined' ? window.location.hash : ''
+    if (!hash.startsWith('#stake=')) return
+    try {
+      const payload = decodeURIComponent(hash.slice(7))
+      const data = JSON.parse(atob(payload)) as { hash?: string; client?: string; nonce?: number }
+      if (data.hash) setServerSeedHash(data.hash)
+      if (data.client != null) setClientSeed(data.client)
+      if (typeof data.nonce === 'number') setNonce(data.nonce)
+      window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    } catch { /* ignore */ }
+  }, [])
 
   const handleVerify = (game: GameType) => {
     const result: VerificationResult = {
@@ -390,6 +404,7 @@ function App() {
                 game={activeTab === 'batch' || activeTab === 'apex' || activeTab === 'history' ? 'mines' : activeTab}
                 serverSeedHash={serverSeedHash}
                 clientSeed={clientSeed}
+                revealedServerSeed={revealedServerSeed}
                 onClose={() => setActiveTab('mines')}
               />
             </TabsContent>
@@ -480,7 +495,7 @@ function App() {
                         </p>
                         <p className="text-xs text-muted-foreground mt-2">
                           Base rate: each tile has a <span className="font-bold text-yellow-400">{((1 - mineCount / totalCells) * 100).toFixed(1)}%</span> chance of being safe
-                          ({mineCount} mines in {totalCells} cells).
+                          ({mineCount} mines in {totalCells} cells). If you ran <strong>Run Probability Analysis</strong> on Mines, the heatmap below uses a Monte Carlo density (50k simulated rounds with the same algorithm) — not exact positions.
                         </p>
                       </div>
                       {probabilisticHeatmapReady && (

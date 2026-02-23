@@ -95,9 +95,14 @@ export default function KenoGame({
 
   return (
     <div className="space-y-6">
+      {!revealedServerSeed && (
+        <p className="text-sm text-amber-600 dark:text-amber-400">
+          Fill Server Seed Hash + Client Seed + Nonce above, then run <strong>Analyze Game State</strong> (or paste revealed seed) so Keno can verify draws.
+        </p>
+      )}
       {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap">
-        <Button onClick={handleVerify} className="bg-primary hover:bg-primary/90">
+        <Button onClick={handleVerify} className="bg-primary hover:bg-primary/90" disabled={!revealedServerSeed}>
           <Check size={20} className="mr-2" />
           Verify Keno
         </Button>

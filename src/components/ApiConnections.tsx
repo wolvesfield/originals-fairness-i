@@ -260,8 +260,13 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
 
         {/* ── Stake ── */}
         <TabsContent value="stake" className="space-y-4">
+          <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 mb-4">
+            <p className="text-sm font-medium text-emerald-400">Easiest: no proxy needed</p>
+            <p className="text-xs text-muted-foreground mt-1">Use <strong>Paste from Stake</strong> in the app (e.g. My Bets): open stake.com → F12 → Network → copy a graphql/active-bet <strong>Response</strong> → paste there. No token, no Cloudflare.</p>
+          </div>
+          <p className="text-xs text-muted-foreground border-b border-border pb-2">Optional: live fetch (needs proxy + token)</p>
           <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium">1. x-access-token (required)</Label>
+            <Label className="text-sm font-medium">1. x-access-token</Label>
             <StatusBadge status={stakeStatus} detail={stakeDetail} />
           </div>
           <div className="flex gap-2">
@@ -269,7 +274,7 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
               type="password"
               value={config.stakeToken}
               onChange={e => updateConfig({ stakeToken: e.target.value })}
-              placeholder="Paste x-access-token from DevTools → Request Headers"
+              placeholder="Paste x-access-token (only for live fetch)"
               className="font-mono text-sm flex-1"
             />
             <Button onClick={testStakeConnection} disabled={stakeStatus === 'testing'} className="whitespace-nowrap">
@@ -281,7 +286,7 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
           </p>
 
           <div className="border-t border-border pt-4 mt-4">
-            <p className="text-sm font-semibold text-amber-400 mb-3">If Test fails — paste these from the SAME request (scroll down here):</p>
+            <p className="text-sm font-semibold text-amber-400 mb-3">If Test fails — paste these from the SAME request:</p>
             <div className="space-y-3">
               <div>
                 <Label className="text-sm font-medium">2. x-lockdown-token</Label>
@@ -298,7 +303,7 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
                 <textarea
                   value={config.stakeCookie}
                   onChange={e => updateConfig({ stakeCookie: e.target.value })}
-                  placeholder="Right-click Cookie in Request Headers → Copy value. Paste here."
+                  placeholder="Right-click Cookie in Request Headers → Copy value."
                   className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs mt-1"
                   rows={3}
                 />
@@ -307,8 +312,9 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
           </div>
 
           <div className="text-xs text-muted-foreground space-y-1">
-            <p><strong>Where to get them:</strong> F12 → Network → do something on stake.com → click any stake.com request → Headers → Request Headers. Copy 1) x-access-token 2) x-lockdown-token 3) Cookie (right-click → Copy value).</p>
+            <p>Get headers: F12 → Network → any stake.com request → Headers → Request Headers.</p>
             <p className="mt-2 text-yellow-500/80">⚠ Stored locally only. Never share.</p>
+            <p className="mt-2"><strong>Why not log in to Stake inside this app?</strong> Embedding stake.com in an iframe is blocked by Stake (security headers). A full in-app browser would still be a separate context — our app could not read Stake’s cookies or run their API from here. So we use the bookmarklet or paste instead.</p>
           </div>
         </TabsContent>
 
@@ -331,7 +337,9 @@ export default function ApiConnections({ onConfigChange }: ApiConnectionsProps) 
             </Button>
           </div>
           <div className="text-xs text-muted-foreground space-y-1">
-            <p><strong>About:</strong> Hashes.com provides hash-to-plaintext lookups. When active, the system can attempt to crack server seed hashes for deterministic mode.</p>
+            <p><strong>What this app does:</strong> You give the <strong>hashed</strong> server seed (from Stake). The app tries to get the <strong>revealed</strong> (plaintext) server seed so Mines/Keno/Crash can be verified deterministically.</p>
+            <p><strong>Hashes.com here:</strong> One of the cracking layers. When you run &quot;Analyze Game State&quot;, the app looks up your server seed hash in (1) local cache (2) Hashes.com API (3) Nitrxgen.net. If the hash is in their database, you get the plaintext seed and full verification.</p>
+            <p><strong>Note:</strong> Stake seeds are random, so often they’re not in any database — then you stay in probability mode or paste the revealed seed from a settled bet.</p>
             <p>Get your API key at <span className="font-mono">hashes.com/en/api</span></p>
           </div>
         </TabsContent>

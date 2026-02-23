@@ -20,6 +20,7 @@ interface BatchVerificationProps {
   game: GameType
   serverSeedHash: string
   clientSeed: string
+  revealedServerSeed?: string | null
   onClose: () => void
 }
 
@@ -28,6 +29,7 @@ export default function BatchVerification({
   game,
   serverSeedHash,
   clientSeed,
+  revealedServerSeed,
   onClose
 }: BatchVerificationProps) {
   const [startNonce, setStartNonce] = useState(0)
@@ -40,9 +42,15 @@ export default function BatchVerification({
   const totalRounds = Math.max(0, endNonce - startNonce + 1)
   const maxBatchSize = 1000
 
+  const seedToUse = revealedServerSeed || null
+
   const handleBatchVerify = async () => {
-    if (!serverSeedHash || !clientSeed) {
-      toast.error('Please fill in Server Seed Hash and Client Seed')
+    if (!seedToUse) {
+      toast.error('Revealed server seed required. Run Analyze Game State above or paste from a settled bet.')
+      return
+    }
+    if (!clientSeed) {
+      toast.error('Please fill in Client Seed')
       return
     }
 
@@ -72,21 +80,21 @@ export default function BatchVerification({
         const mineCount = 3
         const gridSize = platform === 'stake' ? 5 : 5
         const totalCells = gridSize * gridSize
-        const mines = fairMines(serverSeedHash, clientSeed, nonce, mineCount, totalCells)
+        const mines = fairMines(seedToUse, clientSeed, nonce, mineCount, totalCells)
         result = {
           nonce,
           game: 'mines',
           data: { mines, mineCount, gridSize }
         }
       } else if (game === 'keno') {
-        const numbers = fairKeno(serverSeedHash, clientSeed, nonce, 10, 40)
+        const numbers = fairKeno(seedToUse, clientSeed, nonce, 10, 40)
         result = {
           nonce,
           game: 'keno',
           data: { numbers }
         }
       } else {
-        const crashPoint = fairCrash(serverSeedHash, clientSeed, nonce)
+        const crashPoint = fairCrash(seedToUse, clientSeed, nonce)
         result = {
           nonce,
           game: 'crash',
@@ -181,6 +189,17 @@ export default function BatchVerification({
         </Button>
       </div>
 
+      {!seedToUse && (
+        <div className="p-3 rounded-lg bg-amber-500/20 border border-amber-500/50 text-sm text-amber-200 space-y-2">
+          <p>
+            Revealed server seed required. Run <strong>Analyze Game State</strong> in the Server Seed Reveal section above (or paste the revealed seed from a settled bet), then come back here.
+          </p>
+          <p className="text-xs text-amber-200/90">
+            <strong>With revealed seed</strong> we use the same provably-fair formulas as Stake: Mines = Fisher-Yates + HMAC-SHA256; Keno = HMAC float draws; Crash = HMAC 13-hex multiplier. <strong>Without it</strong> there is no other formula — Batch verification is deterministic only.
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="start-nonce">Start Nonce</Label>
@@ -230,7 +249,7 @@ export default function BatchVerification({
       <div className="flex gap-3">
         <Button
           onClick={handleBatchVerify}
-          disabled={isVerifying || totalRounds <= 0 || totalRounds > maxBatchSize}
+          disabled={!seedToUse || isVerifying || totalRounds <= 0 || totalRounds > maxBatchSize}
           className="flex-1 bg-primary hover:bg-primary/90"
         >
           <Play size={20} className="mr-2" />
