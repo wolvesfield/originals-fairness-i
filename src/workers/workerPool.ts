@@ -50,7 +50,7 @@ export class UHFWorkerPool {
 
   private spawnWorkers(): void {
     // Terminate existing workers
-    this.workers.forEach(w => { try { w.terminate(); } catch { /* already dead */ } });
+    this.workers.forEach(w => { try { w.terminate(); } catch { /* ignore */ } });
     this.workers = [];
 
     for (let i = 0; i < this.workerCount; i++) {
@@ -204,7 +204,7 @@ export class UHFWorkerPool {
   }
 
   terminate(): void {
-    this.workers.forEach((w) => { try { w.terminate(); } catch { /* already dead */ } });
+    this.workers.forEach((w) => { try { w.terminate(); } catch { /* ignore */ } });
     this.workers = [];
   }
 }

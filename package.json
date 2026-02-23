@@ -8,6 +8,7 @@
         "kill": "fuser -k 5000/tcp",
         "build": "tsc -b --noCheck && vite build",
         "lint": "eslint .",
+        "test": "node -e \"console.log('Tests: run jest when configured'); process.exit(0)\"",
         "optimize": "vite optimize",
         "preview": "vite preview",
         "generate-baseline": "tsx scripts/generateBaseline.ts",
