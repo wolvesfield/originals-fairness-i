@@ -25,8 +25,7 @@
         "seed-influence": "tsx src/analysis/SeedInfluenceAnalyzer.ts",
         "orchestrate": "tsx src/automation/Orchestrator.ts",
         "pnl-sim": "tsx src/simulation/PnLSimulator.ts",
-        "harvest": "tsx src/data/SeedHarvester.ts",
-        "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js"
+        "harvest": "tsx src/data/SeedHarvester.ts"
     },
     "dependencies": {
         "@github/spark": ">=0.43.1 <1",
