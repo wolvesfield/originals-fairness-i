@@ -57,7 +57,18 @@ export class SeedInfluenceAnalyzer {
       });
       let diffs = 0;
       for (let i = 0; i < rounds.length; i++) {
-        if (JSON.stringify(allMines[i].sort()) !== JSON.stringify(altMines[i].sort())) diffs++;
+        const a1 = allMines[i].slice().sort((a, b) => a - b);
+        const a2 = altMines[i].slice().sort((a, b) => a - b);
+        let same = a1.length === a2.length;
+        if (same) {
+          for (let j = 0; j < a1.length; j++) {
+            if (a1[j] !== a2[j]) {
+              same = false;
+              break;
+            }
+          }
+        }
+        if (!same) diffs++;
       }
       totalDiff += diffs / rounds.length;
     }
