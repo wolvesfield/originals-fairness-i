@@ -19,6 +19,7 @@ import {
   calculateCrashPoint,
   generateFloat,
 } from '../utils/fairnessEngine'
+import { logger } from '../utils/logger'
 
 const app = express()
 // Inline CORS middleware (avoids separate 'cors' package dependency)
@@ -168,9 +169,9 @@ app.get('/health', (_req, res) => {
 // Start
 // ---------------------------------------------------------------------------
 app.listen(PORT, () => {
-  console.log(`[Express API Bridge] Listening on http://localhost:${PORT}`)
-  console.log(`  POST /aim/mines   — Scan for safe nonces (mines)`)
-  console.log(`  POST /aim/keno    — Scan for high-hit nonces (keno)`)
-  console.log(`  POST /aim/crash   — Scan for crash multipliers`)
-  console.log(`  GET  /health      — Liveness check`)
+  logger.info(`[Express API Bridge] Listening on http://localhost:${PORT}`)
+  logger.info(`  POST /aim/mines   — Scan for safe nonces (mines)`)
+  logger.info(`  POST /aim/keno    — Scan for high-hit nonces (keno)`)
+  logger.info(`  POST /aim/crash   — Scan for crash multipliers`)
+  logger.info(`  GET  /health      — Liveness check`)
 })
