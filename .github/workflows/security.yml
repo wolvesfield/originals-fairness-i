@@ -16,6 +16,7 @@ permissions:
 jobs:
   codeql:
     runs-on: ubuntu-latest
+    if: github.event.repository.security_and_analysis.advanced_security.status == 'enabled'
     continue-on-error: true
     permissions:
       security-events: write
@@ -33,7 +34,7 @@ jobs:
 
   dependency-review:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.repository.security_and_analysis.advanced_security.status == 'enabled'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/dependency-review-action@v4
