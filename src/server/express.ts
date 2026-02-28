@@ -53,8 +53,8 @@ app.post('/aim/mines', (req, res) => {
     lookAhead = DEFAULT_LOOK_AHEAD,
   } = req.body
 
-  if (!serverSeed || !clientSeed || nonce == null || !Array.isArray(targetTiles)) {
-    return res.status(400).json({ error: 'Missing required fields: serverSeed, clientSeed, nonce, targetTiles' })
+  if (!serverSeed || !clientSeed || typeof nonce !== 'number' || nonce < 0 || !Number.isInteger(nonce) || !Array.isArray(targetTiles)) {
+    return res.status(400).json({ error: 'Invalid or missing required fields: serverSeed, clientSeed, nonce (must be a non-negative integer), targetTiles' })
   }
 
   const cap = Math.min(lookAhead, MAX_LOOK_AHEAD)
@@ -92,8 +92,8 @@ app.post('/aim/keno', (req, res) => {
     lookAhead = DEFAULT_LOOK_AHEAD,
   } = req.body
 
-  if (!serverSeed || !clientSeed || nonce == null || !Array.isArray(playerPicks)) {
-    return res.status(400).json({ error: 'Missing required fields: serverSeed, clientSeed, nonce, playerPicks' })
+  if (!serverSeed || !clientSeed || typeof nonce !== 'number' || nonce < 0 || !Number.isInteger(nonce) || !Array.isArray(playerPicks)) {
+    return res.status(400).json({ error: 'Invalid or missing required fields: serverSeed, clientSeed, nonce (must be a non-negative integer), playerPicks' })
   }
 
   const cap = Math.min(lookAhead, MAX_LOOK_AHEAD)
@@ -129,8 +129,8 @@ app.post('/aim/crash', (req, res) => {
     lookAhead = DEFAULT_LOOK_AHEAD,
   } = req.body
 
-  if (!serverSeed || !clientSeed || nonce == null) {
-    return res.status(400).json({ error: 'Missing required fields: serverSeed, clientSeed, nonce' })
+  if (!serverSeed || !clientSeed || typeof nonce !== 'number' || nonce < 0 || !Number.isInteger(nonce)) {
+    return res.status(400).json({ error: 'Invalid or missing required fields: serverSeed, clientSeed, nonce (must be a non-negative integer)' })
   }
 
   const cap = Math.min(lookAhead, MAX_LOOK_AHEAD)
