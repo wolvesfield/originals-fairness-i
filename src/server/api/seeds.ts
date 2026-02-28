@@ -65,13 +65,34 @@ export async function handleSeedsApiRequest({ req, res, db }: SeedsApiContext): 
       return
     }
 
-    const payload: unknown = JSON.parse(raw)
-    const records = (Array.isArray(payload) ? payload : [payload]).map(normalizeRecord)
+    let payload: unknown
+    try {
+      payload = JSON.parse(raw)
+    } catch {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: 'Invalid JSON payload' }))
+      return
+    }
 
-    db.bulkInsertVerifiedSeeds(records)
-    res.statusCode = 201
-    res.end(JSON.stringify({ success: true, count: records.length }))
-    return
+    let records: VerifiedSeed[]
+    try {
+      records = (Array.isArray(payload) ? payload : [payload]).map(normalizeRecord)
+    } catch (err: any) {
+      res.statusCode = 400
+      res.end(JSON.stringify({ error: err.message || 'Invalid seed payload' }))
+      return
+    }
+
+    try {
+      db.bulkInsertVerifiedSeeds(records)
+      res.statusCode = 201
+      res.end(JSON.stringify({ success: true, count: records.length }))
+      return
+    } catch {
+      res.statusCode = 500
+      res.end(JSON.stringify({ error: 'Failed to insert seeds' }))
+      return
+    }
   }
 
   if (req.method === 'GET') {
