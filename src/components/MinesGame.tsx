@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, memo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -7,6 +7,111 @@ import { toast } from 'sonner'
 import { generateMinePositions } from '@/utils/fairnessEngine'
 import { ClusterVarianceAnalyzer } from '@/analysis/ClusterVarianceAnalyzer'
 import type { GameRoundResult } from '@/controllers/MasterController'
+
+const MineTile = memo(({
+  index,
+  isVerified,
+  isMine,
+  hasProb,
+  prob,
+  isTarget,
+  isRisk,
+  isSafest,
+  isPainting,
+  gridSize,
+  toggleTargetTile
+}: {
+  index: number;
+  isVerified: boolean;
+  isMine: boolean;
+  hasProb: boolean;
+  prob: number;
+  isTarget: boolean;
+  isRisk: boolean;
+  isSafest: boolean;
+  isPainting: boolean;
+  gridSize: number;
+  toggleTargetTile: (i: number) => void;
+}) => {
+  let displayText: string
+  let bg: string
+  let textColor: string
+  let glow = ''
+  let icon = ''
+  let label = ''
+  const cursor = isPainting ? 'cursor-pointer' : 'cursor-default'
+
+  if (isVerified) {
+    if (isMine) {
+      icon = '💣'
+      bg = 'bg-red-700/80 border-red-500'
+      textColor = 'text-red-200'
+      displayText = 'MINE'
+    } else {
+      icon = '💎'
+      bg = 'bg-emerald-600/80 border-emerald-400'
+      textColor = 'text-emerald-100'
+      glow = 'shadow-[0_0_10px_rgba(16,185,129,0.5)]'
+      displayText = 'SAFE'
+    }
+  } else if (hasProb) {
+    const minePercent = (prob * 100).toFixed(1)
+    displayText = `${minePercent}%`
+
+    if (isTarget) {
+      bg = 'bg-amber-600/60 border-amber-400'
+      textColor = 'text-amber-200'
+      icon = '🎯'
+      label = 'TARGET'
+      glow = 'shadow-[0_0_10px_rgba(245,158,11,0.5)]'
+    } else if (isRisk) {
+      bg = 'bg-red-800/60 border-red-500/50'
+      textColor = 'text-red-300'
+      icon = '⚠️'
+      label = 'RISK'
+      glow = 'shadow-[0_0_8px_rgba(239,68,68,0.4)]'
+    } else if (isSafest) {
+      bg = 'bg-emerald-700/50 border-emerald-500/40'
+      textColor = 'text-emerald-200'
+      icon = '✅'
+      label = 'SAFER'
+      glow = 'shadow-[0_0_8px_rgba(16,185,129,0.3)]'
+    } else {
+      bg = 'bg-slate-800 border-slate-600'
+      textColor = 'text-slate-300'
+      icon = ''
+    }
+  } else {
+    // No analysis yet — show target painting state
+    if (isTarget) {
+      bg = 'bg-amber-600/50 border-amber-400'
+      textColor = 'text-amber-200'
+      displayText = '🎯'
+      icon = ''
+      label = 'TARGET'
+      glow = 'shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+    } else {
+      bg = 'bg-slate-800 border-slate-700'
+      textColor = 'text-slate-400'
+      displayText = '?'
+      icon = ''
+    }
+  }
+
+  const tileSize = gridSize <= 5 ? 'h-16 w-full' : gridSize <= 6 ? 'h-14 w-full' : 'h-12 w-full'
+
+  return (
+    <div
+      onClick={() => toggleTargetTile(index)}
+      className={`${bg} ${glow} ${tileSize} ${cursor} flex flex-col items-center justify-center rounded-lg border transition-all duration-300 ${isPainting ? 'hover:border-amber-400/60 hover:bg-amber-900/20' : ''}`}
+    >
+      {icon && <span className="text-sm leading-none">{icon}</span>}
+      {label && <span className="text-[8px] font-bold uppercase tracking-wide leading-none">{label}</span>}
+      <span className="text-[9px] text-gray-400 leading-none">#{index}</span>
+      <span className={`text-[10px] font-bold ${textColor} leading-none`}>{displayText}</span>
+    </div>
+  )
+})
 
 interface MinesGameProps {
   platform: Platform
@@ -248,98 +353,22 @@ export default function MinesGame({
           maxWidth: gridSize <= 5 ? '400px' : gridSize <= 6 ? '480px' : '560px'
         }}
       >
-        {(() => {
-          const baseRate = mineCount / totalCells;
-          return Array.from({ length: totalCells }, (_, i) => {
-            const isMine = verifiedMines.includes(i)
-            const prob = probabilityMap[i] ?? 0
-            const hasProb = probabilityMap.length > 0
-            const isRisk = riskTiles.includes(i)
-            const isSafest = safestTiles.includes(i)
-            const isTarget = targetTiles.includes(i)
-
-            let displayText: string
-            let bg: string
-            let textColor: string
-            let glow = ''
-            let icon = ''
-            let label = ''
-            const cursor = isPainting ? 'cursor-pointer' : 'cursor-default'
-
-            if (isVerified) {
-              if (isMine) {
-                icon = '💣'
-                bg = 'bg-red-700/80 border-red-500'
-                textColor = 'text-red-200'
-                displayText = 'MINE'
-              } else {
-                icon = '💎'
-                bg = 'bg-emerald-600/80 border-emerald-400'
-                textColor = 'text-emerald-100'
-                glow = 'shadow-[0_0_10px_rgba(16,185,129,0.5)]'
-                displayText = 'SAFE'
-              }
-            } else if (hasProb) {
-              const minePercent = (prob * 100).toFixed(1)
-              displayText = `${minePercent}%`
-
-              if (isTarget) {
-                // User-painted target tile
-                bg = 'bg-amber-600/60 border-amber-400'
-                textColor = 'text-amber-200'
-                icon = '🎯'
-                label = 'TARGET'
-                glow = 'shadow-[0_0_10px_rgba(245,158,11,0.5)]'
-              } else if (isRisk) {
-                bg = 'bg-red-800/60 border-red-500/50'
-                textColor = 'text-red-300'
-                icon = '⚠️'
-                label = 'RISK'
-                glow = 'shadow-[0_0_8px_rgba(239,68,68,0.4)]'
-              } else if (isSafest) {
-                bg = 'bg-emerald-700/50 border-emerald-500/40'
-                textColor = 'text-emerald-200'
-                icon = '✅'
-                label = 'SAFER'
-                glow = 'shadow-[0_0_8px_rgba(16,185,129,0.3)]'
-              } else {
-                bg = 'bg-slate-800 border-slate-600'
-                textColor = 'text-slate-300'
-                icon = ''
-              }
-            } else {
-              // No analysis yet — show target painting state
-              if (isTarget) {
-                bg = 'bg-amber-600/50 border-amber-400'
-                textColor = 'text-amber-200'
-                displayText = '🎯'
-                icon = ''
-                label = 'TARGET'
-                glow = 'shadow-[0_0_8px_rgba(245,158,11,0.4)]'
-              } else {
-                bg = 'bg-slate-800 border-slate-700'
-                textColor = 'text-slate-400'
-                displayText = '?'
-                icon = ''
-              }
-            }
-
-            const tileSize = gridSize <= 5 ? 'h-16 w-full' : gridSize <= 6 ? 'h-14 w-full' : 'h-12 w-full'
-
-            return (
-              <div
-                key={i}
-                onClick={() => toggleTargetTile(i)}
-                className={`${bg} ${glow} ${tileSize} ${cursor} flex flex-col items-center justify-center rounded-lg border transition-all duration-300 ${isPainting ? 'hover:border-amber-400/60 hover:bg-amber-900/20' : ''}`}
-              >
-                {icon && <span className="text-sm leading-none">{icon}</span>}
-                {label && <span className="text-[8px] font-bold uppercase tracking-wide leading-none">{label}</span>}
-                <span className="text-[9px] text-gray-400 leading-none">#{i}</span>
-                <span className={`text-[10px] font-bold ${textColor} leading-none`}>{displayText}</span>
-              </div>
-            )
-          })
-        })()}
+        {Array.from({ length: totalCells }, (_, i) => (
+          <MineTile
+            key={i}
+            index={i}
+            isVerified={isVerified}
+            isMine={verifiedMines.includes(i)}
+            hasProb={probabilityMap.length > 0}
+            prob={probabilityMap[i] ?? 0}
+            isTarget={targetTiles.includes(i)}
+            isRisk={riskTiles.includes(i)}
+            isSafest={safestTiles.includes(i)}
+            isPainting={isPainting}
+            gridSize={gridSize}
+            toggleTargetTile={toggleTargetTile}
+          />
+        ))}
       </div>
 
       {/* Legend */}

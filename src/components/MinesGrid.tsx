@@ -9,7 +9,7 @@ interface Props {
   mineCount?: number; // number of mines for base rate calculation
 }
 
-export const MinesGrid: React.FC<Props> = ({ 
+export const MinesGrid: React.FC<Props> = React.memo(({
   heatMap, 
   isCracked, 
   safeTiles = [], 
@@ -102,4 +102,4 @@ export const MinesGrid: React.FC<Props> = ({
       })}
     </div>
   );
-};
+});
