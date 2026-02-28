@@ -29,10 +29,8 @@ except ImportError:
     print("ERROR: 'requests' not installed. Run: pip install requests")
     sys.exit(1)
 
-# ── Default credentials (override via --token flag) ──
-DEFAULT_TOKEN = (
-    "cf3f4d5a42f40a19ad83c94c285826a8d62d003f24260e6aa46f732bb2f681a434bacc48441c27824ab6c434776736e9"
-)
+# ── Default credentials (override via --token flag or STAKE_AUTH_TOKEN env var) ──
+DEFAULT_TOKEN = os.environ.get("STAKE_AUTH_TOKEN", "")
 
 STAKE_GRAPHQL = "https://stake.com/_api/graphql"
 
@@ -237,6 +235,12 @@ def main():
     args = parser.parse_args()
 
     token = args.token
+
+    if not token:
+        print("\n❌ ERROR: Stake authentication token is missing.")
+        print("Please provide it via the --token flag or set the STAKE_AUTH_TOKEN environment variable.")
+        sys.exit(1)
+
     timestamp = datetime.now().isoformat()
 
     print(f"\n🎰 Stake.com Audit — {timestamp}")
