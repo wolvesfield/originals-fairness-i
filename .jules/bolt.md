@@ -1,0 +1,3 @@
+## 2025-02-24 - Pre-allocating objects in hot loops
+**Learning:** Instantiating `Array.from` and `new Set` inside the tight nonce-scanning loop of `aimingWorker.ts` caused massive memory allocation overhead. A quick benchmark showed that an `O(1)` pre-allocated `Uint8Array` lookup instead of `Set` is orders of magnitude faster for small numeric domains (like Mine/Keno game grids).
+**Action:** When working on worker processes performing millions of iterations, aggressively hoist object allocations (like base arrays or sets) outside of the loop. Replace sets of small integers with `Uint8Array` lookup maps for O(1) membership checks without reallocation.

@@ -45,6 +45,25 @@ self.onmessage = (event: MessageEvent) => {
       progress = new Int32Array(progressBuffer);
     }
 
+    // --- PRE-ALLOCATIONS FOR MAXIMUM PERFORMANCE ---
+    let baseCells: number[] | undefined;
+    let targetMap: Uint8Array | undefined;
+    let kenoTargetMap: Uint8Array | undefined;
+
+    if (gameType === 'MINES') {
+      const totalCells = gameConfig.totalCells ?? 25;
+      baseCells = new Array(totalCells);
+      for (let i = 0; i < totalCells; i++) baseCells[i] = i;
+
+      targetMap = new Uint8Array(totalCells);
+      for (const t of targetPattern) targetMap[t] = 1;
+    } else if (gameType === 'KENO') {
+      const maxNum = gameConfig.maxNum ?? 40;
+      // Keno numbers are 1-indexed, so we allocate maxNum + 1
+      kenoTargetMap = new Uint8Array(maxNum + 1);
+      for (const t of targetPattern) kenoTargetMap[t] = 1;
+    }
+
     for (let nonce = startNonce; nonce <= endNonce; nonce++) {
       // Check if another worker already found a result (kill-switch via Atomics)
       if (progress && Atomics.load(progress, 1) === 1) {
@@ -57,15 +76,14 @@ self.onmessage = (event: MessageEvent) => {
       switch (gameType) {
         case 'MINES': {
           const mineCount = gameConfig.mineCount ?? 3;
-          const totalCells = gameConfig.totalCells ?? 25;
-          isGold = validateMinesState(serverSeed, clientSeed, nonce, targetPattern, mineCount, totalCells);
+          isGold = validateMinesState(serverSeed, clientSeed, nonce, targetMap!, mineCount, baseCells!);
           break;
         }
         case 'KENO': {
           const drawCount = gameConfig.drawCount ?? 20;
           const maxNum = gameConfig.maxNum ?? 40;
           const minHits = gameConfig.minKenoHits ?? Math.ceil(targetPattern.length * 0.5);
-          isGold = validateKenoState(serverSeed, clientSeed, nonce, targetPattern, drawCount, maxNum, minHits);
+          isGold = validateKenoState(serverSeed, clientSeed, nonce, kenoTargetMap!, drawCount, maxNum, minHits);
           break;
         }
         case 'CRASH': {
@@ -129,38 +147,18 @@ function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cu
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Returns mineCount unique cell indices using Fisher-Yates shuffle.
- * Consumes one float per swap via incrementing cursor.
- */
-function generateMinePositions(
-  serverSeed: string, clientSeed: string, nonce: number,
-  mineCount: number, totalCells: number
-): number[] {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
-  let cursor = 0;
-
-  for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
-    cursor++;
-    const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
-  }
-
-  return cells.slice(totalCells - mineCount);
-}
-
-/**
  * Truncated search: early-exit if any target tile is already in a mine swap
  * position BEFORE finishing all mineCount iterations. This avoids computing
  * all mine positions when we can already tell a target tile is mined.
  */
 function validateMinesState(
   serverSeed: string, clientSeed: string, nonce: number,
-  targetPattern: number[], mineCount: number, totalCells: number
+  targetMap: Uint8Array, mineCount: number, baseCells: number[]
 ): boolean {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  const totalCells = baseCells.length;
+  // Fast copy of pre-allocated array instead of Array.from
+  const cells = baseCells.slice();
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
@@ -169,7 +167,8 @@ function validateMinesState(
     [cells[i], cells[j]] = [cells[j], cells[i]];
 
     // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
+    // Using O(1) array lookup instead of Set.has
+    if (targetMap[cells[i]] === 1) {
       return false;
     }
   }
@@ -200,12 +199,21 @@ function generateKenoNumbers(
 
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
-  selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
+  targetMap: Uint8Array, drawCount: number, maxNum: number, minHits: number
 ): boolean {
   const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+
+  let hitCount = 0;
+  // Instead of using Set and filter, we just check our O(1) Uint8Array directly
+  for (let i = 0; i < drawn.length; i++) {
+    if (targetMap[drawn[i]] === 1) {
+      hitCount++;
+      if (hitCount >= minHits) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
