@@ -45,6 +45,24 @@ self.onmessage = (event: MessageEvent) => {
       progress = new Int32Array(progressBuffer);
     }
 
+    // Pre-allocate buffers for performance (avoiding GC overhead in tight loop)
+    const maxNum = gameType === 'KENO' ? (gameConfig.maxNum ?? 40) : (gameConfig.totalCells ?? 25);
+    const targetFlags = new Uint8Array(maxNum + 1);
+    for (const t of targetPattern) {
+      targetFlags[t] = 1;
+    }
+
+    // Pre-allocate for MINES
+    let cellsBuffer: Uint8Array | null = null;
+    if (gameType === 'MINES') {
+      cellsBuffer = new Uint8Array(gameConfig.totalCells ?? 25);
+    }
+    // Pre-allocate for KENO
+    let drawnBuffer: Uint8Array | null = null;
+    if (gameType === 'KENO') {
+      drawnBuffer = new Uint8Array((gameConfig.maxNum ?? 40) + 1);
+    }
+
     for (let nonce = startNonce; nonce <= endNonce; nonce++) {
       // Check if another worker already found a result (kill-switch via Atomics)
       if (progress && Atomics.load(progress, 1) === 1) {
@@ -58,14 +76,14 @@ self.onmessage = (event: MessageEvent) => {
         case 'MINES': {
           const mineCount = gameConfig.mineCount ?? 3;
           const totalCells = gameConfig.totalCells ?? 25;
-          isGold = validateMinesState(serverSeed, clientSeed, nonce, targetPattern, mineCount, totalCells);
+          isGold = validateMinesState(serverSeed, clientSeed, nonce, targetFlags, mineCount, totalCells, cellsBuffer!);
           break;
         }
         case 'KENO': {
           const drawCount = gameConfig.drawCount ?? 20;
-          const maxNum = gameConfig.maxNum ?? 40;
+          const max = gameConfig.maxNum ?? 40;
           const minHits = gameConfig.minKenoHits ?? Math.ceil(targetPattern.length * 0.5);
-          isGold = validateKenoState(serverSeed, clientSeed, nonce, targetPattern, drawCount, maxNum, minHits);
+          isGold = validateKenoState(serverSeed, clientSeed, nonce, targetFlags, drawCount, max, minHits, drawnBuffer!);
           break;
         }
         case 'CRASH': {
@@ -153,23 +171,30 @@ function generateMinePositions(
  * Truncated search: early-exit if any target tile is already in a mine swap
  * position BEFORE finishing all mineCount iterations. This avoids computing
  * all mine positions when we can already tell a target tile is mined.
+ * ⚡ Bolt Optimization: Uses pre-allocated Uint8Arrays to eliminate GC overhead
+ * previously caused by `Array.from()` and `new Set()` in tight loops.
  */
 function validateMinesState(
   serverSeed: string, clientSeed: string, nonce: number,
-  targetPattern: number[], mineCount: number, totalCells: number
+  targetFlags: Uint8Array, mineCount: number, totalCells: number, cellsBuffer: Uint8Array
 ): boolean {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  // Initialize pre-allocated cells buffer
+  for (let i = 0; i < totalCells; i++) {
+    cellsBuffer[i] = i;
+  }
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
+
+    const temp = cellsBuffer[i];
+    cellsBuffer[i] = cellsBuffer[j];
+    cellsBuffer[j] = temp;
 
     // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
+    if (targetFlags[cellsBuffer[i]] === 1) {
       return false;
     }
   }
@@ -181,31 +206,40 @@ function validateMinesState(
 // Keno — Set-based collision avoidance (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateKenoNumbers(
+/**
+ * ⚡ Bolt Optimization: Uses pre-allocated Uint8Arrays to eliminate GC overhead
+ * and inlines generation logic to avoid intermediate Set creation. Early exit
+ * added when `minHits` is reached.
+ */
+function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
-  count: number, maxNum: number
-): number[] {
-  const drawn = new Set<number>();
+  targetFlags: Uint8Array, drawCount: number, maxNum: number, minHits: number, drawnBuffer: Uint8Array
+): boolean {
+  // Clear pre-allocated drawn buffer
+  drawnBuffer.fill(0);
+  let drawnCount = 0;
   let cursor = 0;
+  let hits = 0;
 
-  while (drawn.size < count) {
+  while (drawnCount < drawCount) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
+
+    if (drawnBuffer[num] === 0) {
+      drawnBuffer[num] = 1;
+      drawnCount++;
+
+      if (targetFlags[num] === 1) {
+        hits++;
+        if (hits >= minHits) {
+          return true; // Early exit: we have enough hits
+        }
+      }
+    }
   }
 
-  return Array.from(drawn);
-}
-
-function validateKenoState(
-  serverSeed: string, clientSeed: string, nonce: number,
-  selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
-): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
