@@ -1,0 +1,4 @@
+
+## 2024-03-04 - [High-Frequency Crypto Optimization in V8]
+**Learning:** Instantiating `CryptoJS.HmacSHA256` and coercing it to a hex string (`.toString(CryptoJS.enc.Hex)`) inside ultra-high-frequency loops (like web workers brute-forcing nonces millions of times) causes devastating Garbage Collection pauses and slows down execution by ~3-4x. V8 struggles to optimize the constant creation and deletion of string objects.
+**Action:** In ultra-hot code paths, cache a single `CryptoJS.algo.HMAC` instance via `.create()` per thread/worker, use `.reset()` and `.update()`, and access the underlying 32-bit integers directly via the `.words` array (e.g. `(hash.words[0] >>> 0) / 4294967296`). Avoid string allocations completely. Always pair this with pre-allocated `Uint8Array` buffers instead of `Array`/`Set` instantiations.

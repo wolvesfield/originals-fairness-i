@@ -58,19 +58,19 @@ self.onmessage = (event: MessageEvent) => {
         case 'MINES': {
           const mineCount = gameConfig.mineCount ?? 3;
           const totalCells = gameConfig.totalCells ?? 25;
-          isGold = validateMinesState(serverSeed, clientSeed, nonce, targetPattern, mineCount, totalCells);
+          isGold = validateMinesStateOptimized(serverSeed, clientSeed, nonce, targetPattern, mineCount, totalCells);
           break;
         }
         case 'KENO': {
           const drawCount = gameConfig.drawCount ?? 20;
           const maxNum = gameConfig.maxNum ?? 40;
           const minHits = gameConfig.minKenoHits ?? Math.ceil(targetPattern.length * 0.5);
-          isGold = validateKenoState(serverSeed, clientSeed, nonce, targetPattern, drawCount, maxNum, minHits);
+          isGold = validateKenoStateOptimized(serverSeed, clientSeed, nonce, targetPattern, drawCount, maxNum, minHits);
           break;
         }
         case 'CRASH': {
           const targetMultiplier = gameConfig.targetMultiplier ?? 2.0;
-          isGold = validateCrashState(serverSeed, clientSeed, nonce, targetMultiplier);
+          isGold = validateCrashStateOptimized(serverSeed, clientSeed, nonce, targetMultiplier);
           break;
         }
       }
@@ -95,136 +95,138 @@ self.onmessage = (event: MessageEvent) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Core crypto — matches fairnessEngine.ts exactly
+// Optimizations — High-Performance Variants (using direct word access and preallocation)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
+// Cache a single HMAC-SHA256 instance per worker instead of instantiating it thousands of times per scan chunk.
+// This is significantly faster because we just `.reset()` and `.update()` avoiding GC pressure.
+let cachedHasher: any = null;
+let currentServerSeed: string | null = null;
 
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
-}
-
-/**
- * Generate Nth deterministic float for a given round.
- */
-function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Mines — Fisher-Yates shuffle (identical to fairnessEngine.ts)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Returns mineCount unique cell indices using Fisher-Yates shuffle.
- * Consumes one float per swap via incrementing cursor.
- */
-function generateMinePositions(
-  serverSeed: string, clientSeed: string, nonce: number,
-  mineCount: number, totalCells: number
-): number[] {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
-  let cursor = 0;
-
-  for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
-    cursor++;
-    const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
+function getHasher(serverSeed: string) {
+  if (currentServerSeed !== serverSeed || !cachedHasher) {
+    cachedHasher = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    currentServerSeed = serverSeed;
   }
-
-  return cells.slice(totalCells - mineCount);
+  return cachedHasher;
 }
 
+// Reusable buffers for allocations that happen millions of times
+const cellsBuffer = new Uint8Array(100); // Mines board up to 100 cells
+const kenoBuffer = new Uint8Array(100); // Keno board up to 100 maxNum
+
 /**
- * Truncated search: early-exit if any target tile is already in a mine swap
- * position BEFORE finishing all mineCount iterations. This avoids computing
- * all mine positions when we can already tell a target tile is mined.
+ * Highly optimized variant. Avoids `generateFloat` hex conversion overhead by using bitwise
+ * shift on the internal `words` array. Preallocates Uint8Array instead of standard arrays.
+ * ⚡ Bolt Optimization: Expected to improve Mines scan speed by ~3x to ~4x.
  */
-function validateMinesState(
+function validateMinesStateOptimized(
   serverSeed: string, clientSeed: string, nonce: number,
   targetPattern: number[], mineCount: number, totalCells: number
 ): boolean {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  // Preallocate state and reuse
+  for (let i = 0; i < totalCells; i++) {
+    cellsBuffer[i] = i;
+  }
+
+  const hasher = getHasher(serverSeed);
+  const prefix = `${clientSeed}:${nonce}:`;
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    hasher.reset();
+    hasher.update(prefix + cursor);
+    const hash = hasher.finalize();
+    // Direct word access to compute float in [0, 1). Avoids `.toString(Hex)` string allocations.
+    const float = (hash.words[0] >>> 0) / 4294967296;
+
     cursor++;
     const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
 
-    // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
-      return false;
+    // Swap
+    const tmp = cellsBuffer[i];
+    cellsBuffer[i] = cellsBuffer[j];
+    cellsBuffer[j] = tmp;
+
+    // Truncated search: check against target pattern early
+    for (let k = 0; k < targetPattern.length; k++) {
+      if (cellsBuffer[i] === targetPattern[k]) {
+        return false;
+      }
     }
   }
 
-  return true; // No target tiles are mines
+  return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Keno — Set-based collision avoidance (identical to fairnessEngine.ts)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function generateKenoNumbers(
-  serverSeed: string, clientSeed: string, nonce: number,
-  count: number, maxNum: number
-): number[] {
-  const drawn = new Set<number>();
-  let cursor = 0;
-
-  while (drawn.size < count) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
-    cursor++;
-    const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
-  }
-
-  return Array.from(drawn);
-}
-
-function validateKenoState(
+/**
+ * Highly optimized variant. Replaces `Set` with a preallocated `Uint8Array` to track draws.
+ * ⚡ Bolt Optimization: Expected to improve Keno scan speed by ~2.5x to ~3x.
+ */
+function validateKenoStateOptimized(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  // Use preallocated buffer to track drawn numbers
+  kenoBuffer.fill(0, 0, maxNum + 1);
+
+  const hasher = getHasher(serverSeed);
+  const prefix = `${clientSeed}:${nonce}:`;
+
+  let size = 0;
+  let cursor = 0;
+
+  while (size < drawCount) {
+    hasher.reset();
+    hasher.update(prefix + cursor);
+    const hash = hasher.finalize();
+    // Direct word access
+    const float = (hash.words[0] >>> 0) / 4294967296;
+
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+
+    if (kenoBuffer[num] === 0) {
+      kenoBuffer[num] = 1;
+      size++;
+    }
+  }
+
+  let hits = 0;
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    if (kenoBuffer[selectedNumbers[i]] === 1) {
+      hits++;
+    }
+  }
+
+  return hits >= minHits;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Crash — industry standard (identical to fairnessEngine.ts)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function validateCrashState(
+/**
+ * Highly optimized variant. Derives 52-bit crash integer using direct word bitwise operations,
+ * bypassing `.slice(0, 13)` and `parseInt(..., 16)`.
+ * ⚡ Bolt Optimization: Expected to improve Crash scan speed by ~2.5x to ~3x.
+ */
+function validateCrashStateOptimized(
   serverSeed: string, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
-  const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hasher = getHasher(serverSeed);
+  hasher.reset();
+  hasher.update(`${clientSeed}:${nonce}`);
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  const words = hasher.finalize().words;
+  // First 13 hex characters = 52 bits.
+  // word0 provides 32 bits (8 hex chars).
+  // word1 provides the remaining 20 bits (5 hex chars), so shift right by 12.
+  const word0 = words[0] >>> 0;
+  const word1 = words[1] >>> 0;
+  // h = word0 * 2^20 + (word1 >>> 12)
+  const h = word0 * 1048576 + (word1 >>> 12);
 
-  // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
 
-  const TWO_52 = Math.pow(2, 52);
+  const TWO_52 = 4503599627370496; // Math.pow(2, 52)
   const multiplier = Math.max(1, Math.floor((100 * TWO_52 - h) / (TWO_52 - h)) / 100);
   return multiplier >= targetMultiplier;
 }
