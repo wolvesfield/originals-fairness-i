@@ -25,11 +25,55 @@ export function hashToFloat(hash: string): number {
 }
 
 /**
+ * Simple Bounded LRU Cache for HMAC instances to avoid expensive instantiation
+ * while preventing memory leaks.
+ */
+class SimpleLRU<K, V> {
+  private map = new Map<K, V>()
+  constructor(private capacity: number) {}
+
+  get(key: K): V | undefined {
+    if (!this.map.has(key)) return undefined
+    const val = this.map.get(key)!
+    this.map.delete(key)
+    this.map.set(key, val)
+    return val
+  }
+
+  set(key: K, value: V) {
+    if (this.map.has(key)) {
+      this.map.delete(key)
+    } else if (this.map.size >= this.capacity) {
+      // remove the first key
+      this.map.delete(this.map.keys().next().value!)
+    }
+    this.map.set(key, value)
+  }
+}
+
+/**
+ * Internal cache for HMAC instances. Max 100 seeds.
+ */
+const hmacCache = new SimpleLRU<string, any>(100)
+
+/**
  * Convenience: generate the Nth deterministic float for a given round.
+ * Optimized using cached HMAC and bitwise word extraction.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor)
-  return hashToFloat(hash)
+  let hmacObj = hmacCache.get(serverSeed)
+  if (!hmacObj) {
+    hmacObj = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed)
+    hmacCache.set(serverSeed, hmacObj)
+  }
+
+  const message = `${clientSeed}:${nonce}:${cursor}`
+  hmacObj.reset()
+  const hash = hmacObj.finalize(message)
+
+  // Use the first 32-bit word directly instead of string conversion
+  const int = hash.words[0] >>> 0
+  return int / 4294967296
 }
 
 // ---------------------------------------------------------------------------

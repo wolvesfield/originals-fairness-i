@@ -45,6 +45,9 @@ self.onmessage = (event: MessageEvent) => {
       progress = new Int32Array(progressBuffer);
     }
 
+    // Cache the HMAC object to avoid expensive re-instantiation per nonce/cursor
+    const hmacObj = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+
     for (let nonce = startNonce; nonce <= endNonce; nonce++) {
       // Check if another worker already found a result (kill-switch via Atomics)
       if (progress && Atomics.load(progress, 1) === 1) {
@@ -58,18 +61,19 @@ self.onmessage = (event: MessageEvent) => {
         case 'MINES': {
           const mineCount = gameConfig.mineCount ?? 3;
           const totalCells = gameConfig.totalCells ?? 25;
-          isGold = validateMinesState(serverSeed, clientSeed, nonce, targetPattern, mineCount, totalCells);
+          isGold = validateMinesState(hmacObj, clientSeed, nonce, targetPattern, mineCount, totalCells);
           break;
         }
         case 'KENO': {
           const drawCount = gameConfig.drawCount ?? 20;
           const maxNum = gameConfig.maxNum ?? 40;
           const minHits = gameConfig.minKenoHits ?? Math.ceil(targetPattern.length * 0.5);
-          isGold = validateKenoState(serverSeed, clientSeed, nonce, targetPattern, drawCount, maxNum, minHits);
+          isGold = validateKenoState(hmacObj, clientSeed, nonce, targetPattern, drawCount, maxNum, minHits);
           break;
         }
         case 'CRASH': {
           const targetMultiplier = gameConfig.targetMultiplier ?? 2.0;
+          // Crash validation logic handles its own hashing due to structural differences
           isGold = validateCrashState(serverSeed, clientSeed, nonce, targetMultiplier);
           break;
         }
@@ -99,29 +103,17 @@ self.onmessage = (event: MessageEvent) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
-
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
-}
-
-/**
  * Generate Nth deterministic float for a given round.
+ * Optimized using cached HMAC and bitwise word extraction.
  */
-function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+function generateFloat(hmacObj: any, clientSeed: string, nonce: number, cursor: number): number {
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  hmacObj.reset();
+  const hash = hmacObj.finalize(message);
+
+  // Use the first 32-bit word directly instead of string conversion
+  const int = hash.words[0] >>> 0;
+  return int / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -133,14 +125,14 @@ function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cu
  * Consumes one float per swap via incrementing cursor.
  */
 function generateMinePositions(
-  serverSeed: string, clientSeed: string, nonce: number,
+  hmacObj: any, clientSeed: string, nonce: number,
   mineCount: number, totalCells: number
 ): number[] {
   const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
   let cursor = 0;
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    const float = generateFloat(hmacObj, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
     [cells[i], cells[j]] = [cells[j], cells[i]];
@@ -155,7 +147,7 @@ function generateMinePositions(
  * all mine positions when we can already tell a target tile is mined.
  */
 function validateMinesState(
-  serverSeed: string, clientSeed: string, nonce: number,
+  hmacObj: any, clientSeed: string, nonce: number,
   targetPattern: number[], mineCount: number, totalCells: number
 ): boolean {
   const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
@@ -163,7 +155,7 @@ function validateMinesState(
   const targetSet = new Set(targetPattern);
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    const float = generateFloat(hmacObj, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
     [cells[i], cells[j]] = [cells[j], cells[i]];
@@ -182,14 +174,14 @@ function validateMinesState(
 // ─────────────────────────────────────────────────────────────────────────────
 
 function generateKenoNumbers(
-  serverSeed: string, clientSeed: string, nonce: number,
+  hmacObj: any, clientSeed: string, nonce: number,
   count: number, maxNum: number
 ): number[] {
   const drawn = new Set<number>();
   let cursor = 0;
 
   while (drawn.size < count) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    const float = generateFloat(hmacObj, clientSeed, nonce, cursor);
     cursor++;
     const num = Math.floor(float * maxNum) + 1;
     drawn.add(num);
@@ -199,10 +191,10 @@ function generateKenoNumbers(
 }
 
 function validateKenoState(
-  serverSeed: string, clientSeed: string, nonce: number,
+  hmacObj: any, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
+  const drawn = generateKenoNumbers(hmacObj, clientSeed, nonce, drawCount, maxNum);
   const drawnSet = new Set(drawn);
   const hits = selectedNumbers.filter((n) => drawnSet.has(n));
   return hits.length >= minHits;
