@@ -11,15 +11,14 @@ interface Props {
   scannerResult: ScannerResult;
   confidence: number;
   hashStatus: 'CRACKED' | 'SEARCHING' | 'UNKNOWN';
+  gridSize?: number;
   onClose?: () => void;
 }
 
-export const GoldPathHUD: React.FC<Props> = ({ scannerResult, confidence, hashStatus, onClose }) => {
+export const GoldPathHUD: React.FC<Props> = ({ scannerResult, confidence, hashStatus, gridSize = 5, onClose }) => {
   // Only show in DETERMINISTIC mode — probabilistic results should NOT trigger this overlay
   if (!scannerResult.found) return null;
   if (hashStatus !== 'CRACKED') return null;
-
-  const gridSize = 5;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm">
@@ -50,11 +49,10 @@ export const GoldPathHUD: React.FC<Props> = ({ scannerResult, confidence, hashSt
         {Array.from({ length: gridSize * gridSize }, (_, i) => (
           <div
             key={i}
-            className={`h-10 w-10 flex items-center justify-center rounded text-xs font-bold ${
-              scannerResult.safePath?.includes(i)
+            className={`h-10 w-10 flex items-center justify-center rounded text-xs font-bold ${scannerResult.safePath?.includes(i)
                 ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.6)] text-white'
                 : 'bg-gray-800 text-gray-500'
-            }`}
+              }`}
           >
             {i}
           </div>

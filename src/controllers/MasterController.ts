@@ -574,7 +574,7 @@ export class MasterController {
       mode: 'DETERMINISTIC',
       found: !!firstGold,
       nonce: firstGold?.nonce,
-      safePath: firstGold?.safeTiles?.slice(0, 5),
+      safePath: firstGold ? targetPattern : undefined,
       confidence: 0.999,
       allocation: alloc,
       crackedSeed: serverSeed,

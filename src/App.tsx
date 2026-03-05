@@ -260,6 +260,7 @@ function App() {
         scannerResult={scannerResult}
         confidence={confidence ?? 0}
         hashStatus={hashStatus as 'CRACKED' | 'SEARCHING' | 'UNKNOWN'}
+        gridSize={gridSize}
         onClose={handleDismissGoldPath}
       />
       <div className="mx-auto max-w-7xl space-y-6">
