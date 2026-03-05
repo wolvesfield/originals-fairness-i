@@ -163,7 +163,8 @@ function App() {
         targetTiles,
         mineCount,
         totalCells,
-        3
+        3,
+        platform
       )
       setApexResult(apex)
       setSelectedApexOption(0)
@@ -177,7 +178,8 @@ function App() {
           clientSeed || 'default-client-seed',
           predictionNonce,
           mineCount,
-          totalCells
+          totalCells,
+          platform
         )
         const isGold = !targetTiles.some(tile => mines.includes(tile))
         return {
