@@ -201,26 +201,32 @@ export interface StakeActiveSeedPair {
 export class StakeApiClient {
   private readonly endpoint: string
   private readonly authToken: string
+  private readonly activeToken: string
   private readonly cookie: string
   private readonly userAgent: string
 
-  constructor(options?: { endpoint?: string; authToken?: string; cookie?: string; userAgent?: string }) {
+  constructor(options?: { endpoint?: string; authToken?: string; cookie?: string; userAgent?: string; xAccessToken?: string }) {
     this.endpoint = options?.endpoint ?? STAKE_GRAPHQL_ENDPOINT
-    this.authToken = options?.authToken ?? process.env.STAKE_AUTH_TOKEN ?? ''
+    this.authToken = options?.authToken ?? process.env.STAKE_TOKEN_1 ?? process.env.STAKE_AUTH_TOKEN ?? ''
+    const secondaryToken = process.env.STAKE_TOKEN_2 || '';
+    const xAccessToken = options?.xAccessToken ?? process.env.STAKE_ACCESS_TOKEN ?? process.env.STAKE_X_ACCESS_TOKEN ?? ''
     this.cookie = options?.cookie ?? process.env.STAKE_COOKIE ?? ''
     this.userAgent = options?.userAgent ?? process.env.STAKE_USER_AGENT
       ?? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36'
 
-    if (!this.authToken) {
-      throw new Error('Missing STAKE_AUTH_TOKEN. Set environment variable STAKE_AUTH_TOKEN before querying Stake API.')
+    if (!this.authToken && !xAccessToken) {
+      throw new Error('Missing STAKE_AUTH_TOKEN or STAKE_ACCESS_TOKEN. Set environment variables.')
     }
+
+    // Determine primary auth header mode based on available tokens
+    this.activeToken = this.authToken || xAccessToken || secondaryToken;
   }
 
   private async graphql<T>(query: string, variables: Record<string, unknown> = {}, operationName?: string): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: '*/*',
-      'x-access-token': this.authToken,
+      'x-access-token': this.activeToken,
       'x-language': 'en',
       'user-agent': this.userAgent,
       'origin': 'https://stake.com',

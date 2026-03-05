@@ -1,0 +1,43 @@
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes to be committed:
+  (use "git restore --staged <file>..." to unstage)
+	modified:   .gitignore
+	new file:   asconfig.json
+	new file:   assembly/index.ts
+	new file:   assembly/tsconfig.json
+	new file:   build/.gitignore
+	modified:   package-lock.json
+	modified:   package.json
+	new file:   scripts/test_frontend.js
+	new file:   scripts/test_frontend.mjs
+	modified:   src/App.tsx
+	new file:   src/acquisition/RinpodSolver.ts
+	modified:   src/acquisition/stakeApi.ts
+	new file:   src/analysis/ClientSeedOptimizer.ts
+	modified:   src/analysis/ClusterVarianceAnalyzer.ts
+	modified:   src/analysis/IntegrityAuditor.ts
+	modified:   src/components/CrashGame.tsx
+	modified:   src/components/KenoGame.tsx
+	new file:   src/components/SeedOptimizerPanel.tsx
+	new file:   tests/index.js
+	new file:   tmp_err.txt
+	modified:   vite.config.ts
+	new file:   vite_out.txt
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   src/App.tsx
+	modified:   src/analysis/AllocationEngine.ts
+	modified:   src/components/MinesGame.tsx
+	modified:   src/controllers/MasterController.ts
+	modified:   vite_out.txt
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	branch_list.txt
+	git_status.txt
+	src/analysis/MarkovChainAnalyzer.ts
+

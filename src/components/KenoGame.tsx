@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Check, Crosshair, Eraser } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { generateKenoNumbers } from '@/utils/fairnessEngine'
 import type { GameRoundResult } from '@/controllers/MasterController'
+import { ClusterVarianceAnalyzer } from '@/analysis/ClusterVarianceAnalyzer'
 
 const DRAW_COUNT = 10   // Numbers drawn per round
 const MAX_NUM = 40      // Number pool size (1-40)
@@ -33,6 +34,17 @@ export default function KenoGame({
   const [userPicks, setUserPicks] = useState<number[]>([])
   const [isPicking, setIsPicking] = useState(false)
   const [isVerified, setIsVerified] = useState(false)
+
+  const [probabilityMap, setProbabilityMap] = useState<number[]>([])
+  const [isRunningProbability, setIsRunningProbability] = useState(false)
+  const cva = useMemo(() => new ClusterVarianceAnalyzer(), [])
+
+  // Reset state on core inputs change
+  useEffect(() => {
+    setDrawnNumbers([])
+    setIsVerified(false)
+    setProbabilityMap([])
+  }, [serverSeedHash, clientSeed, nonce])
 
   // Notify parent when user picks change
   useEffect(() => {
@@ -90,21 +102,47 @@ export default function KenoGame({
     }
   }
 
+  const handleRunProbability = () => {
+    if (!serverSeedHash || !clientSeed) {
+      toast.error('Please fill in Server Seed Hash and Client Seed')
+      return
+    }
+    setIsVerified(false)
+    setDrawnNumbers([])
+    setIsRunningProbability(true)
+
+    // Run synchronous pass
+    setTimeout(() => {
+      const heatMap = cva.generateKenoDensityMap(DRAW_COUNT, MAX_NUM, `${clientSeed}:${nonce}`)
+      setProbabilityMap(heatMap)
+      setIsRunningProbability(false)
+      toast.success('Keno probability analysis complete (Monte Carlo)')
+    }, 10)
+  }
+
   const hits = userPicks.filter(n => drawnNumbers.includes(n))
   const misses = userPicks.filter(n => !drawnNumbers.includes(n))
 
   return (
     <div className="space-y-6">
-      {!revealedServerSeed && (
-        <div className="p-3 rounded-lg bg-amber-500/20 border border-amber-500/50 text-sm text-amber-200">
-          <strong>Keno Verify needs the revealed server seed.</strong> Paste it in <strong>Configuration → Revealed Server Seed</strong> above, or in Stake tab click <strong>Load bet history</strong> → paste JSON → <strong>Use pasted data</strong> → then <strong>Apply</strong> a settled bet. Then come back and click Verify Keno.
-        </div>
-      )}
+      <div className="rounded-md border border-border p-3 text-sm">
+        <p>
+          <strong>Mode:</strong>{' '}
+          {revealedServerSeed ? 'Deterministic verification available' : 'Pre-reveal (probability prediction only)'}
+        </p>
+      </div>
       {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap">
         <Button onClick={handleVerify} className="bg-primary hover:bg-primary/90" disabled={!revealedServerSeed}>
           <Check size={20} className="mr-2" />
           Verify Keno
+        </Button>
+        <Button
+          variant="outline"
+          onClick={handleRunProbability}
+          disabled={isRunningProbability || !serverSeedHash || !clientSeed}
+        >
+          {isRunningProbability ? 'Analyzing…' : 'Run Probability Analysis'}
         </Button>
         <Button
           variant={isPicking ? 'default' : 'outline'}
@@ -165,7 +203,14 @@ export default function KenoGame({
                   animationDelay: isVerified && isDrawn ? `${drawnNumbers.indexOf(number) * 50}ms` : '0ms'
                 }}
               >
-                {number}
+                <div className="flex flex-col items-center justify-center leading-none">
+                  <span>{number}</span>
+                  {!isVerified && probabilityMap.length > 0 && (
+                    <span className="text-[10px] text-muted-foreground mt-0.5 font-normal">
+                      {(probabilityMap[number - 1] * 100).toFixed(1)}%
+                    </span>
+                  )}
+                </div>
               </div>
             )
           })}

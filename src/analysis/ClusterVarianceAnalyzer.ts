@@ -1,4 +1,4 @@
-import { generateMinePositions } from '../utils/fairnessEngine';
+import { generateMinePositions, generateKenoNumbers, calculateCrashPoint } from '../utils/fairnessEngine';
 
 /**
  * Monte Carlo Density Mapping using the REAL fairness engine algorithm.
@@ -38,6 +38,51 @@ export class ClusterVarianceAnalyzer {
 
     // Convert counts to probabilities
     return hitCount.map(count => count / this.iterations);
+  }
+
+  /**
+   * Generate a probability hit map for Keno (how likely each of the maxNum numbers is to be drawn).
+   */
+  generateKenoDensityMap(drawCount: number, maxNum: number, baseSeed: string): number[] {
+    const hitCount = new Array(maxNum).fill(0);
+
+    for (let i = 0; i < this.iterations; i++) {
+      const simServerSeed = `sim-keno-${baseSeed}-${i}`;
+      const simClientSeed = 'monte-carlo-keno';
+      const simNonce = i;
+
+      const numbers = generateKenoNumbers(simServerSeed, simClientSeed, simNonce, drawCount, maxNum);
+      numbers.forEach((num) => {
+        hitCount[num - 1]++; // 1-indexed to 0-indexed
+      });
+    }
+
+    return hitCount.map(count => count / this.iterations);
+  }
+
+  /**
+   * Generate an expected average Crash multiplier via Monte Carlo.
+   */
+  generateCrashMonteCarlo(baseSeed: string): { average: number; median: number; safe2x: number } {
+    const multipliers: number[] = [];
+    let safe2xCount = 0;
+
+    for (let i = 0; i < this.iterations; i++) {
+      const simServerSeed = `sim-crash-${baseSeed}-${i}`;
+      const simClientSeed = 'monte-carlo-crash';
+      const simNonce = i;
+
+      const crash = calculateCrashPoint(simServerSeed, simClientSeed, simNonce);
+      multipliers.push(crash);
+      if (crash >= 2.0) safe2xCount++;
+    }
+
+    multipliers.sort((a, b) => a - b);
+    const average = multipliers.reduce((a, b) => a + b, 0) / this.iterations;
+    const median = multipliers[Math.floor(this.iterations / 2)];
+    const safe2x = safe2xCount / this.iterations;
+
+    return { average, median, safe2x };
   }
 
   /**
@@ -106,10 +151,99 @@ export class ClusterVarianceAnalyzer {
     const variance = heatMap.reduce((sum, v) => sum + (v - mean) ** 2, 0) / heatMap.length;
     const stdDev = Math.sqrt(variance);
     const coeffOfVariation = mean > 0 ? stdDev / mean : 0;
-    
+
     // Distribution is "uniform" if coefficient of variation is small
     const isUniform = coeffOfVariation < 0.05;
 
     return { mean, stdDev, coeffOfVariation, isUniform };
+  }
+
+  /**
+   * K-Means Statistical Clustering 
+   * Groups high-safety vs low-safety grid tiles based on their geographical 
+   * distance in the grid combined with their statistical probability of containing a mine.
+   * Helps avoid picking adjacent tiles from a single "cluster" that might contain a stray mine.
+   */
+  public generateKMeansSafetyClusters(heatMap: number[], gridSize: number, clusters: number = 3): number[][] {
+    const k = Math.max(1, Math.min(clusters, heatMap.length));
+
+    // Convert flat index to { x, y, prob }
+    const points = heatMap.map((prob, i) => ({
+      index: i,
+      x: i % gridSize,
+      y: Math.floor(i / gridSize),
+      prob
+    }));
+
+    // Initialize centroids randomly from points
+    let centroids = Array.from({ length: k }, () => points[Math.floor(Math.random() * points.length)]);
+    let assignments: number[] = new Array(points.length).fill(-1);
+    let changed = true;
+    let maxIterations = 20;
+
+    while (changed && maxIterations > 0) {
+      changed = false;
+      maxIterations--;
+
+      // Assign points to nearest centroid
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        let bestDist = Infinity;
+        let bestCluster = 0;
+
+        for (let j = 0; j < k; j++) {
+          const c = centroids[j];
+          // Distance equals Euclidian geographical distance + probability weight
+          const dist = Math.sqrt(Math.pow(p.x - c.x, 2) + Math.pow(p.y - c.y, 2)) + (Math.abs(p.prob - c.prob) * gridSize);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestCluster = j;
+          }
+        }
+
+        if (assignments[i] !== bestCluster) {
+          assignments[i] = bestCluster;
+          changed = true;
+        }
+      }
+
+      // Recompute centroids
+      if (changed) {
+        const newCentroids = Array.from({ length: k }, () => ({ x: 0, y: 0, prob: 0, count: 0 }));
+        for (let i = 0; i < points.length; i++) {
+          const cluster = assignments[i];
+          const p = points[i];
+          newCentroids[cluster].x += p.x;
+          newCentroids[cluster].y += p.y;
+          newCentroids[cluster].prob += p.prob;
+          newCentroids[cluster].count++;
+        }
+
+        centroids = newCentroids.map((nc, idx) => {
+          if (nc.count === 0) return centroids[idx]; // Keep old centroid if cluster is empty
+          return {
+            x: nc.x / nc.count,
+            y: nc.y / nc.count,
+            prob: nc.prob / nc.count,
+            index: -1 // Centroid is abstract
+          };
+        });
+      }
+    }
+
+    // Sort clusters by average probability (lowest probability = safest cluster first)
+    const clusterArrays = Array.from({ length: k }, () => [] as typeof points);
+    for (let i = 0; i < points.length; i++) {
+      clusterArrays[assignments[i]].push(points[i]);
+    }
+
+    clusterArrays.sort((a, b) => {
+      const probA = a.reduce((sum, p) => sum + p.prob, 0) / (a.length || 1);
+      const probB = b.reduce((sum, p) => sum + p.prob, 0) / (b.length || 1);
+      return probA - probB;
+    });
+
+    // Return arrays of indices, grouped by safe clusters
+    return clusterArrays.map(cluster => cluster.map(p => p.index));
   }
 }

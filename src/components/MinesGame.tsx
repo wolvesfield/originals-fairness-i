@@ -37,7 +37,10 @@ export default function MinesGame({
   const [probabilityMap, setProbabilityMap] = useState<number[]>([])
   const [riskTiles, setRiskTiles] = useState<number[]>([])
   const [safestTiles, setSafestTiles] = useState<number[]>([])
+  const [safeClusterTiles, setSafeClusterTiles] = useState<number[]>([])
   const [targetTiles, setTargetTiles] = useState<number[]>([])
+  const [markovHeatMap, setMarkovHeatMap] = useState<number[]>([])
+  const [markovRiskTiles, setMarkovRiskTiles] = useState<number[]>([])
   const [isPainting, setIsPainting] = useState(false)
   const [isRunningProbability, setIsRunningProbability] = useState(false)
 
@@ -51,6 +54,9 @@ export default function MinesGame({
     setProbabilityMap([])
     setRiskTiles([])
     setSafestTiles([])
+    setSafeClusterTiles([])
+    setMarkovHeatMap([])
+    setMarkovRiskTiles([])
     // Don't reset target tiles when inputs change — user might want to keep them
   }, [serverSeedHash, clientSeed, nonce, mineCount])
 
@@ -83,6 +89,9 @@ export default function MinesGame({
         setProbabilityMap([])
         setRiskTiles([])
         setSafestTiles([])
+        setSafeClusterTiles([])
+        setMarkovHeatMap([])
+        setMarkovRiskTiles([])
       }
     }
 
@@ -100,6 +109,28 @@ export default function MinesGame({
         const safeCount = totalCells - mineCount
         setRiskTiles(sorted.slice(0, riskCount).map((t: { idx: number }) => t.idx))
         setSafestTiles(sorted.slice(-safeCount).map((t: { idx: number }) => t.idx))
+
+        // Generate optimal geometric cluster
+        const clusters = cva.generateKMeansSafetyClusters(analysisResult.heatMap, gridSize, 3)
+        if (clusters.length > 0) {
+          setSafeClusterTiles(clusters[0])
+        }
+      }
+
+      if (analysisResult.markovHeatMap && analysisResult.markovHeatMap.length === totalCells) {
+        setMarkovHeatMap(analysisResult.markovHeatMap)
+
+        // Find top high-danger temporal transition risk tiles
+        const markovSorted = analysisResult.markovHeatMap
+          .map((prob: number, idx: number) => ({ idx, prob }))
+          .sort((a, b) => b.prob - a.prob)
+
+        // Only mark top 2 transition spots to keep UI clean, unless mineCount is 1
+        const markovRiskCount = Math.min(mineCount, 2)
+        setMarkovRiskTiles(markovSorted.slice(0, markovRiskCount).map(t => t.idx))
+      } else {
+        setMarkovHeatMap([])
+        setMarkovRiskTiles([])
       }
     }
   }, [analysisResult, nonce, totalCells, mineCount])
@@ -155,9 +186,16 @@ export default function MinesGame({
         setProbabilityMap([...combinedMap])
         setRiskTiles(sorted.slice(0, riskCount).map((t: { idx: number }) => t.idx))
         setSafestTiles(sorted.slice(-safeCount).map((t: { idx: number }) => t.idx))
+
+        // Get geographically clustered safest options
+        const clusters = cva.generateKMeansSafetyClusters(combinedMap, gridSize, 3)
+        if (clusters.length > 0) {
+          setSafeClusterTiles(clusters[0])
+        }
+
         setIsRunningProbability(false)
         toast.success(
-          `Probability analysis complete — ${riskCount} risk tiles and ${safeCount} safer tiles (${mineCount} mines in ${totalCells} cells)`
+          `Probability analysis complete (Monte Carlo + K-Means) — ${riskCount} risk tiles and clustered safe zones.`
         )
         return
       }
@@ -256,7 +294,9 @@ export default function MinesGame({
             const hasProb = probabilityMap.length > 0
             const isRisk = riskTiles.includes(i)
             const isSafest = safestTiles.includes(i)
+            const isClusterSafe = safeClusterTiles.includes(i)
             const isTarget = targetTiles.includes(i)
+            const isMarkovRisk = markovRiskTiles.includes(i)
 
             let displayText: string
             let bg: string
@@ -296,6 +336,20 @@ export default function MinesGame({
                 icon = '⚠️'
                 label = 'RISK'
                 glow = 'shadow-[0_0_8px_rgba(239,68,68,0.4)]'
+              } else if (isMarkovRisk) {
+                // Temporal transitional prediction via Markov Chain
+                bg = 'bg-fuchsia-900/60 border-fuchsia-500/50'
+                textColor = 'text-fuchsia-300'
+                icon = '🔮'
+                label = 'SHIFT'
+                glow = 'shadow-[0_0_8px_rgba(217,70,239,0.5)]'
+              } else if (isClusterSafe) {
+                // KMeans designated safe geographic zone
+                bg = 'bg-blue-600/60 border-blue-400'
+                textColor = 'text-blue-100'
+                icon = '🛡️'
+                label = 'ZONE'
+                glow = 'shadow-[0_0_12px_rgba(59,130,246,0.6)]'
               } else if (isSafest) {
                 bg = 'bg-emerald-700/50 border-emerald-500/40'
                 textColor = 'text-emerald-200'
@@ -353,12 +407,22 @@ export default function MinesGame({
             )}
             {riskTiles.length > 0 && (
               <span className="flex items-center gap-1">
-                <span className="w-3 h-3 rounded bg-red-800/60 border border-red-500/50 inline-block" /> ⚠️ Risk Tiles ({riskTiles.length})
+                <span className="w-3 h-3 rounded bg-red-800/60 border border-red-500/50 inline-block" /> ⚠️ Gen Risk ({riskTiles.length})
+              </span>
+            )}
+            {markovRiskTiles.length > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded bg-fuchsia-900/60 border border-fuchsia-500/50 inline-block" /> 🔮 Temporal Shift ({markovRiskTiles.length})
               </span>
             )}
             {safestTiles.length > 0 && (
               <span className="flex items-center gap-1">
                 <span className="w-3 h-3 rounded bg-emerald-700/50 border border-emerald-500/40 inline-block" /> ✅ Safer Tiles ({safestTiles.length})
+              </span>
+            )}
+            {safeClusterTiles.length > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded bg-blue-600/60 border border-blue-400 inline-block" /> 🛡️ Golden Cluster ({safeClusterTiles.length})
               </span>
             )}
             <span className="flex items-center gap-1">

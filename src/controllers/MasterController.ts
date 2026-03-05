@@ -3,6 +3,7 @@ import { ClusterVarianceAnalyzer } from '../analysis/ClusterVarianceAnalyzer';
 import { AllocationEngine } from '../analysis/AllocationEngine';
 import { VolatilityHedge } from '../analysis/VolatilityHedge';
 import { TelemetryDispatcher } from '../telemetry/TelemetryDispatcher';
+import { MarkovChainAnalyzer } from '../analysis/MarkovChainAnalyzer';
 import { generateMinePositions, calculateCrashPoint, generateKenoNumbers } from '../utils/fairnessEngine';
 
 // Roobet mine configs per grid size
@@ -61,6 +62,7 @@ export interface GameRoundResult {
   kenoScanResults?: KenoScanResult[];
   modeResults?: AnalysisModeResult[];
   riskTiles?: number[];
+  markovHeatMap?: number[];
 }
 
 export interface ApexGoldenPathOption {
@@ -243,13 +245,14 @@ export class MasterController {
     targetPattern: number[] = [0, 1, 2, 3, 4],
     mineCount: number = 3,
     revealedSeed?: string,
-    totalCells: number = 25
+    totalCells: number = 25,
+    visualHistory?: number[][]
   ): Promise<GameRoundResult> {
     const directSeed = revealedSeed || null;
 
     if (directSeed) {
       return this.processDeterministic(
-        directSeed, clientSeed, nonce, bankroll, targetPattern, mineCount, totalCells
+        directSeed, clientSeed, nonce, bankroll, targetPattern, mineCount, totalCells, visualHistory
       );
     }
 
@@ -258,8 +261,16 @@ export class MasterController {
 
     if (crackedSeed) {
       return this.processDeterministic(
-        crackedSeed, clientSeed, nonce, bankroll, targetPattern, mineCount, totalCells
+        crackedSeed, clientSeed, nonce, bankroll, targetPattern, mineCount, totalCells, visualHistory
       );
+    }
+
+    let markovHeatMap: number[] | undefined = undefined;
+    if (visualHistory && visualHistory.length >= 2) {
+      const markov = new MarkovChainAnalyzer(totalCells);
+      markov.ingestHistory(visualHistory);
+      const lastState = visualHistory[visualHistory.length - 1];
+      markovHeatMap = markov.predictNextState(lastState);
     }
 
     // PROBABILISTIC MODE — Statistical analysis (honest about limitations)
@@ -298,7 +309,7 @@ export class MasterController {
         allocation: alloc,
         targetZone: `PROBABILISTIC — ${k} tiles, ${mineCount}/${totalCells} mines`,
         volatilitySigma: hedgeFactor < 1 ? 1.5 : 0.8,
-      }).catch(() => {/* non-blocking */});
+      }).catch(() => {/* non-blocking */ });
     }
 
     return {
@@ -308,6 +319,7 @@ export class MasterController {
       confidence,
       allocation: alloc,
       heatMap,
+      markovHeatMap,
       modeResults,
       riskTiles // Expose risk tiles matching mine count for the UI
     } as GameRoundResult;
@@ -351,11 +363,10 @@ export class MasterController {
     results.push({
       name: 'Hash Entropy',
       confidence: entropyRatio, // 0-1 scale showing hash quality
-      description: `${hashQuality} hash quality (${hashEntropy.toFixed(1)}/${maxEntropy} bits). ${
-        hashQuality === 'Strong'
+      description: `${hashQuality} hash quality (${hashEntropy.toFixed(1)}/${maxEntropy} bits). ${hashQuality === 'Strong'
           ? 'Hash is cryptographically strong — outcomes are unpredictable without the server seed.'
           : 'Hash shows lower-than-expected entropy — could indicate a non-random seed.'
-      }`,
+        }`,
       details: { hashEntropy, maxEntropy, entropyRatio, hashQuality }
     });
 
@@ -487,7 +498,7 @@ export class MasterController {
     const df = n - 1;
 
     // Approximate p-value using Wilson-Hilferty approximation
-    const z = Math.pow(chiSq / df, 1/3) - (1 - 2 / (9 * df));
+    const z = Math.pow(chiSq / df, 1 / 3) - (1 - 2 / (9 * df));
     const denom = Math.sqrt(2 / (9 * df));
     const zScore = z / denom;
     // Standard normal CDF approximation
@@ -514,13 +525,35 @@ export class MasterController {
     bankroll: number,
     targetPattern: number[],
     mineCount: number,
-    totalCells: number
+    totalCells: number,
+    visualHistory?: number[][]
   ): Promise<GameRoundResult> {
     // Mines scan
     const scanResults = this.scanWithRevealedSeed(
       serverSeed, clientSeed, nonce, NONCE_LOOK_AHEAD, targetPattern, mineCount, totalCells
     );
     const firstGold = scanResults.find(r => r.isSafe);
+
+    // Run Markov against perfect deterministic history
+    let markovHeatMap: number[] | undefined = undefined;
+    let historicalMines: number[][] = [];
+    const lookback = Math.min(nonce, 50);
+
+    // Auto-generate accurate history if we have room behind the current nonce
+    if (lookback >= 2) {
+      for (let i = nonce - lookback; i < nonce; i++) {
+        historicalMines.push(generateMinePositions(serverSeed, clientSeed, i, mineCount, totalCells));
+      }
+    } else if (visualHistory && visualHistory.length >= 2) {
+      historicalMines = visualHistory;
+    }
+
+    if (historicalMines.length >= 2) {
+      const markov = new MarkovChainAnalyzer(totalCells);
+      markov.ingestHistory(historicalMines);
+      const lastState = historicalMines[historicalMines.length - 1];
+      markovHeatMap = markov.predictNextState(lastState);
+    }
 
     // Crash scan
     const crashResults = this.scanCrashPoints(serverSeed, clientSeed, nonce);
@@ -545,6 +578,7 @@ export class MasterController {
       confidence: 0.999,
       allocation: alloc,
       crackedSeed: serverSeed,
+      markovHeatMap,
       nonceScanResults: scanResults,
       crashScanResults: crashResults,
       kenoScanResults: kenoResults

@@ -134,6 +134,13 @@ export default defineConfig({
           'vendor-crypto': ['crypto-js', 'ethers'],
           'vendor-charts': ['recharts', 'd3'],
           'vendor-animation': ['framer-motion', 'three'],
+          'analysis': [
+            './src/analysis/ClusterVarianceAnalyzer.ts',
+            './src/analysis/IntegrityAuditor.ts',
+            './src/analysis/AllocationEngine.ts',
+            './src/analysis/VolatilityHedge.ts',
+            './src/analysis/SeedInfluenceAnalyzer.ts'
+          ]
         },
       },
     },

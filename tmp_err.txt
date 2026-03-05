@@ -1,0 +1,11 @@
+Error: Incompatible React versions: The "react" and "react-dom" packages must have the exact same version. Instead got:
+  - react:      19.2.4
+  - react-dom:  19.2.0
+Learn more: https://react.dev/warnings/version-mismatch
+    at http://localhost:5001/node_modules/.vite/deps/react-dom_client.js?v=a5700945:20056:17
+    at http://localhost:5001/node_modules/.vite/deps/react-dom_client.js?v=a5700945:20059:9
+    at node_modules/react-dom/cjs/react-dom-client.development.js (http://localhost:5001/node_modules/.vite/deps/react-dom_client.js?v=a5700945:20177:7)
+    at __require2 (http://localhost:5001/node_modules/.vite/deps/chunk-PR4QN5HX.js?v=a5700945:14:50)
+    at node_modules/react-dom/client.js (http://localhost:5001/node_modules/.vite/deps/react-dom_client.js?v=a5700945:20188:24)
+    at __require2 (http://localhost:5001/node_modules/.vite/deps/chunk-PR4QN5HX.js?v=a5700945:14:50)
+    at http://localhost:5001/node_modules/.vite/deps/react-dom_client.js?v=a5700945:20192:16

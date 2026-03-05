@@ -196,7 +196,7 @@ export class IntegrityAuditor {
 }
 
 // CLI entry point for standalone testing
-if (typeof process !== 'undefined' && process.argv[1]?.includes('IntegrityAuditor')) {
+if (typeof process !== 'undefined' && process.argv && process.argv[1]?.includes('IntegrityAuditor')) {
   (async () => {
     console.log('═══ INTEGRITY AUDITOR — MULTI-LAYER HASH RESOLUTION ═══\n');
     const auditor = new IntegrityAuditor();

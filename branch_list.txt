@@ -1,0 +1,23 @@
+  origin/HEAD -> origin/main
+  origin/add-contract-verifier-tests-14735827568692640766
+  origin/bolt-aiming-worker-optimization-10364597749510512720
+  origin/bolt-crypto-optimizations-18034676789878518638
+  origin/bolt-optimize-aiming-worker-15953251642004749364
+  origin/bolt-optimize-aimingworker-4990558062093571492
+  origin/bolt-perf-mines-grid-memo-891224527949827894
+  origin/code-health/logger-express-13337721680892301048
+  origin/dependabot/npm_and_yarn/lucide-react-0.575.0
+  origin/dependabot/npm_and_yarn/marked-17.0.3
+  origin/dependabot/npm_and_yarn/octokit/core-7.0.6
+  origin/dependabot/npm_and_yarn/tailwindcss-4.2.1
+  origin/dependabot/npm_and_yarn/vite-7.3.1
+  origin/feat/project-hardening
+  origin/fix-cors-security-vulnerability-16491264542532298663
+  origin/fix-magic-number-mobile-breakpoint-7842933699102683310
+  origin/fix-nonce-validation-17551677261880461333
+  origin/fix-unsafe-json-parse-17923248853629967692
+  origin/fix/remove-hardcoded-token-stake-audit-4892493065852370848
+  origin/improve-usekv-error-handling-12998145072288168736
+  origin/main
+  origin/perf-optimize-db-fetch-entropy-auditor-888437847770757298
+  origin/perf-optimize-seed-influence-analyzer-16260001484904795553

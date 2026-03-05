@@ -1,0 +1,21 @@
+34	⚡ Bolt: [performance improvement] Optimize crypto-js HMAC allocation and parsing overhead	bolt/crypto-hmac-optimization-13014907516228494271	OPEN	2026-03-05T02:46:10Z
+33	⚡ Bolt: Optimize aimingWorker crypto operations	bolt-optimize-aiming-worker-15953251642004749364	OPEN	2026-03-04T02:39:30Z
+32	⚡ Bolt: [performance improvement] Optimize CryptoJS hot loops	bolt-crypto-optimizations-18034676789878518638	OPEN	2026-03-03T02:54:57Z
+31	⚡ Bolt: [performance improvement] Pre-allocate Uint8Arrays for Mines/Keno in aimingWorker	bolt-optimize-aimingworker-4990558062093571492	OPEN	2026-03-02T02:39:31Z
+30	⚡ Bolt: Optimize aimingWorker hot loops via pre-allocation	bolt-aiming-worker-optimization-10364597749510512720	OPEN	2026-03-01T02:25:11Z
+29	⚡ Bolt: Memoize Mines grid components to reduce re-renders	bolt-perf-mines-grid-memo-891224527949827894	OPEN	2026-02-28T02:06:59Z
+28	🧪 Add unit tests for ContractVerifier	add-contract-verifier-tests-14735827568692640766	OPEN	2026-02-28T01:31:55Z
+27	⚡ Optimize SeedInfluenceAnalyzer JSON serialization loop	perf-optimize-seed-influence-analyzer-16260001484904795553	OPEN	2026-02-28T01:31:30Z
+26	🔒 fix(server): ensure strict validation of nonce parameter	fix-nonce-validation-17551677261880461333	OPEN	2026-02-28T01:30:16Z
+25	🔒 Remove hardcoded token from stake_audit.py	fix/remove-hardcoded-token-stake-audit-4892493065852370848	OPEN	2026-02-28T01:27:59Z
+24	🧹 [code health improvement] Replace console.log with a standard logger in server startup	code-health/logger-express-13337721680892301048	OPEN	2026-02-28T01:27:53Z
+23	🧹 Refactor `MOBILE_BREAKPOINT` magic number into constants file	fix-magic-number-mobile-breakpoint-7842933699102683310	OPEN	2026-02-28T01:27:16Z
+22	🔒 Fix unsafe JSON parsing DoS vulnerability in seeds API	fix-unsafe-json-parse-17923248853629967692	OPEN	2026-02-28T01:27:03Z
+21	🧹 [code health] Add error logging to useKV hook	improve-usekv-error-handling-12998145072288168736	OPEN	2026-02-27T14:31:49Z
+20	🔒 [security fix] Restrict permissive CORS policy	fix-cors-security-vulnerability-16491264542532298663	OPEN	2026-02-27T14:29:39Z
+19	⚡ Optimize memory usage in entropy_auditor.py	perf-optimize-db-fetch-entropy-auditor-888437847770757298	OPEN	2026-02-27T14:00:39Z
+18	chore(deps-dev): bump tailwindcss from 4.1.17 to 4.2.1	dependabot/npm_and_yarn/tailwindcss-4.2.1	OPEN	2026-02-24T11:27:03Z
+17	chore(deps): bump marked from 15.0.12 to 17.0.3	dependabot/npm_and_yarn/marked-17.0.3	OPEN	2026-02-24T11:26:51Z
+16	chore(deps): bump lucide-react from 0.484.0 to 0.575.0	dependabot/npm_and_yarn/lucide-react-0.575.0	OPEN	2026-02-24T11:26:38Z
+15	chore(deps-dev): bump vite from 7.2.6 to 7.3.1	dependabot/npm_and_yarn/vite-7.3.1	OPEN	2026-02-24T11:26:26Z
+14	chore(deps): bump @octokit/core from 6.1.6 to 7.0.6	dependabot/npm_and_yarn/octokit/core-7.0.6	OPEN	2026-02-24T11:26:10Z

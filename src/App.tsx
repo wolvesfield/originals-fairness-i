@@ -21,9 +21,11 @@ import GameResultRecorder from '@/components/GameResultRecorder'
 import { GoldPathHUD } from '@/components/GoldPathHUD'
 import { FutureChainSidebar } from '@/components/FutureChainSidebar'
 import { MinesGrid } from '@/components/MinesGrid'
+import SeedOptimizerPanel from '@/components/SeedOptimizerPanel'
 import { MasterController } from '@/controllers/MasterController'
 import type { GameRoundResult, ApexScanResult, AnalysisModeResult } from '@/controllers/MasterController'
 import { generateMinePositions } from '@/utils/fairnessEngine'
+import { getGameResults } from '@/db/browserDb'
 import { addSeedHistoryEntry } from '@/db/browserDb'
 
 type AppTab = GameType | 'batch' | 'apex' | 'history'
@@ -110,6 +112,13 @@ function App() {
 
     const seedToUse = overrideSeed || revealedServerSeed || undefined
 
+    // Grab manual game history to fuel the Probabilistic Markov Chain if no deterministic seed exists
+    const recentGames = await getGameResults(100)
+    const historyArray = recentGames
+      .filter(g => g.gameType === 'mines' && g.minesFound)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()) // chronological
+      .map(g => g.minesFound!.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)))
+
     const result = await masterController.processGameRound(
       serverSeedHash || 'unknown',
       clientSeed || 'default-client-seed',
@@ -118,7 +127,8 @@ function App() {
       targetTiles,
       mineCount,
       seedToUse,
-      totalCells
+      totalCells,
+      historyArray
     )
 
     setAnalysisResult(result)
@@ -263,21 +273,19 @@ function App() {
           <div className="flex gap-2">
             <button
               onClick={() => setPlatform('stake')}
-              className={`px-4 py-2 rounded-md font-medium text-sm transition-colors ${
-                platform === 'stake'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-              }`}
+              className={`px-4 py-2 rounded-md font-medium text-sm transition-colors ${platform === 'stake'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                }`}
             >
               Stake
             </button>
             <button
               onClick={() => setPlatform('roobet')}
-              className={`px-4 py-2 rounded-md font-medium text-sm transition-colors ${
-                platform === 'roobet'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-              }`}
+              className={`px-4 py-2 rounded-md font-medium text-sm transition-colors ${platform === 'roobet'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                }`}
             >
               Roobet
             </button>
@@ -303,6 +311,18 @@ function App() {
           revealedServerSeed={revealedServerSeed}
           setRevealedServerSeed={setRevealedServerSeed}
         />
+
+        {activeTab === 'mines' && (
+          <SeedOptimizerPanel
+            unhashedServerSeed={revealedServerSeed}
+            serverSeedHash={serverSeedHash}
+            nonce={nonce}
+            targetTiles={targetTiles}
+            mineCount={mineCount}
+            totalCells={totalCells}
+            onApplySeed={setClientSeed}
+          />
+        )}
 
         <ServerSeedReveal
           serverSeedHash={serverSeedHash}
@@ -435,11 +455,10 @@ function App() {
                           <div
                             key={option.nonce}
                             onClick={() => setSelectedApexOption(idx)}
-                            className={`p-4 rounded-lg border cursor-pointer transition-all ${
-                              selectedApexOption === idx
-                                ? 'border-emerald-500 bg-emerald-500/10 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
-                                : 'border-border bg-secondary/40 hover:bg-secondary/60'
-                            }`}
+                            className={`p-4 rounded-lg border cursor-pointer transition-all ${selectedApexOption === idx
+                              ? 'border-emerald-500 bg-emerald-500/10 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                              : 'border-border bg-secondary/40 hover:bg-secondary/60'
+                              }`}
                           >
                             <div className="flex items-center justify-between mb-2">
                               <Badge variant={idx === 0 ? 'default' : 'secondary'} className={idx === 0 ? 'bg-yellow-600' : ''}>
@@ -452,10 +471,9 @@ function App() {
                             <div className="space-y-1 text-sm">
                               <div className="flex justify-between">
                                 <span className="text-muted-foreground">Target Safety:</span>
-                                <span className={`font-bold ${
-                                  option.targetSafetyScore === 100 ? 'text-emerald-400' :
+                                <span className={`font-bold ${option.targetSafetyScore === 100 ? 'text-emerald-400' :
                                   option.targetSafetyScore >= 80 ? 'text-yellow-400' : 'text-red-400'
-                                }`}>
+                                  }`}>
                                   {option.targetSafetyScore.toFixed(1)}%
                                 </span>
                               </div>
