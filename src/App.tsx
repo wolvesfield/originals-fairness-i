@@ -10,9 +10,6 @@ import type { Platform, GameType, VerificationResult } from '@/lib/types'
 import ConfigPanel from '@/components/ConfigPanel'
 import ServerSeedReveal from '@/components/ServerSeedReveal'
 import MinesGame from '@/components/MinesGame'
-import KenoGame from '@/components/KenoGame'
-import CrashGame from '@/components/CrashGame'
-import BatchVerification from '@/components/BatchVerification'
 import StakeMyBets from '@/components/StakeMyBets'
 import SeedHistory from '@/components/SeedHistory'
 import ApiConnections from '@/components/ApiConnections'
@@ -28,7 +25,7 @@ import { generateMinePositions } from '@/utils/fairnessEngine'
 import { getGameResults } from '@/db/browserDb'
 import { addSeedHistoryEntry } from '@/db/browserDb'
 
-type AppTab = GameType | 'batch' | 'apex' | 'history'
+type AppTab = 'mines' | 'apex' | 'history'
 
 interface FuturePrediction {
   nonce: number
@@ -217,7 +214,7 @@ function App() {
         nonce,
         revealedServerSeed: result.crackedSeed || seedToUse || undefined,
         platform,
-        gameType: activeTab === 'batch' || activeTab === 'apex' || activeTab === 'history' ? 'mines' : activeTab,
+        gameType: 'mines',
         mode: result.mode,
         confidence: result.confidence,
         timestamp: new Date().toISOString()
@@ -360,25 +357,13 @@ function App() {
                 <GridFour size={18} />
                 Mines
               </TabsTrigger>
-              <TabsTrigger value="keno" className="gap-1.5 text-xs sm:text-sm">
-                <NumberSquareEight size={18} />
-                Keno
-              </TabsTrigger>
-              <TabsTrigger value="crash" className="gap-1.5 text-xs sm:text-sm">
-                <TrendUp size={18} />
-                Crash
-              </TabsTrigger>
-              <TabsTrigger value="batch" className="gap-1.5 text-xs sm:text-sm">
-                <ListChecks size={18} />
-                Batch
-              </TabsTrigger>
               <TabsTrigger value="apex" className="gap-1.5 text-xs sm:text-sm">
                 <TrendUp size={18} />
-                Apex
+                Apex Scanner
               </TabsTrigger>
               <TabsTrigger value="history" className="gap-1.5 text-xs sm:text-sm">
-                <Plugs size={18} />
-                History
+                <ListChecks size={18} />
+                History & Stats
               </TabsTrigger>
             </TabsList>
 
@@ -393,43 +378,6 @@ function App() {
                 onVerify={() => handleVerify('mines')}
                 analysisResult={analysisResult}
                 onTargetTilesChange={setUserTargetTiles}
-              />
-            </TabsContent>
-
-            <TabsContent value="keno" className="mt-6">
-              <KenoGame
-                serverSeedHash={serverSeedHash}
-                revealedServerSeed={revealedServerSeed}
-                clientSeed={clientSeed}
-                nonce={nonce}
-                onVerify={() => handleVerify('keno')}
-                analysisResult={analysisResult}
-                onUserPicksChange={(picks) => {
-                  // Keno picks are used as target pattern for analysis
-                  setUserTargetTiles(picks)
-                }}
-              />
-            </TabsContent>
-
-            <TabsContent value="crash" className="mt-6">
-              <CrashGame
-                serverSeedHash={serverSeedHash}
-                revealedServerSeed={revealedServerSeed}
-                clientSeed={clientSeed}
-                nonce={nonce}
-                onVerify={() => handleVerify('crash')}
-                analysisResult={analysisResult}
-              />
-            </TabsContent>
-
-            <TabsContent value="batch" className="mt-6">
-              <BatchVerification
-                platform={platform}
-                game={activeTab === 'batch' || activeTab === 'apex' || activeTab === 'history' ? 'mines' : activeTab}
-                serverSeedHash={serverSeedHash}
-                clientSeed={clientSeed}
-                revealedServerSeed={revealedServerSeed}
-                onClose={() => setActiveTab('mines')}
               />
             </TabsContent>
 
