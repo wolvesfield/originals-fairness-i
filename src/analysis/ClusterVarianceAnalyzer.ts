@@ -177,7 +177,7 @@ export class ClusterVarianceAnalyzer {
 
     // Initialize centroids randomly from points
     let centroids = Array.from({ length: k }, () => points[Math.floor(Math.random() * points.length)]);
-    let assignments: number[] = new Array(points.length).fill(-1);
+    const assignments: number[] = new Array(points.length).fill(-1);
     let changed = true;
     let maxIterations = 20;
 
