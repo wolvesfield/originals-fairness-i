@@ -9,8 +9,10 @@ import CryptoJS from 'crypto-js'
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  * Returns the full hex digest (64 hex chars / 256 bits).
  */
-export function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`
+export function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): string {
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
   return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
 }
 
@@ -27,8 +29,8 @@ export function hashToFloat(hash: string): number {
 /**
  * Convenience: generate the Nth deterministic float for a given round.
  */
-export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor)
+export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
+  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
   return hashToFloat(hash)
 }
 
@@ -81,24 +83,45 @@ export function generateMinePositions(
   clientSeed: string,
   nonce: number,
   mineCount: number,
-  totalCells: number
+  totalCells: number,
+  platform?: 'stake' | 'roobet'
 ): number[] {
-  // Build ordered array [0, 1, 2, ..., totalCells - 1]
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i)
-  let cursor = 0
+  // Stake exclusively supports 5x5 (25 cells). Roobet dictates 36, 49, 64.
+  // If the explicit platform is omitted, infer based on geographic limits.
+  const activePlatform = platform || (totalCells !== 25 ? 'roobet' : 'stake')
 
-  // Fisher-Yates shuffle (we only need `mineCount` iterations)
-  for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor)
-    cursor++
+  if (activePlatform === 'roobet') {
+    // Roobet uses simple picking with re-rolls
+    const mines: number[] = []
+    let cursor = 0
+    while (mines.length < mineCount) {
+      const float = generateFloat(serverSeed, clientSeed, nonce, cursor, activePlatform)
+      const mine = Math.floor(float * totalCells)
+      if (!mines.includes(mine)) {
+        mines.push(mine)
+      }
+      cursor++
+    }
+    return mines.sort((a, b) => a - b)
+  } else {
+    // Stake uses Fisher-Yates
+    const cells: number[] = Array.from({ length: totalCells }, (_, i) => i)
+    let cursor = 0
 
-    const j = Math.floor(float * (i + 1))   // random index in [0, i]
-    // Swap
-    ;[cells[i], cells[j]] = [cells[j], cells[i]]
+    // Fisher-Yates shuffle (we only need `mineCount` iterations)
+    for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
+      const float = generateFloat(serverSeed, clientSeed, nonce, cursor, activePlatform)
+      cursor++
+
+      const j = Math.floor(float * (i + 1))   // random index in [0, i]
+        // Swap
+        ;[cells[i], cells[j]] = [cells[j], cells[i]]
+    }
+
+    // The last `mineCount` positions in the array are the mines
+    const mines = cells.slice(totalCells - mineCount)
+    return mines.sort((a, b) => a - b)
   }
-
-  // The last `mineCount` positions in the array are the mines
-  return cells.slice(totalCells - mineCount)
 }
 
 // ---------------------------------------------------------------------------
