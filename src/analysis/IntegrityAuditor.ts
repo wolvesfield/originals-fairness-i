@@ -32,7 +32,7 @@ export class IntegrityAuditor {
    */
   async resolveServerSeed(hash: string): Promise<string | null> {
     const normalizedHash = hash.toLowerCase().trim();
-    
+
     // Layer 1: In-memory cache (instant)
     const cached = this.localCache.get(normalizedHash);
     if (cached) {
@@ -82,7 +82,7 @@ export class IntegrityAuditor {
       const Database = (await import(/* @vite-ignore */ 'better-sqlite3')).default;
       const path = (await import(/* @vite-ignore */ 'path')).default;
       const dbPath = path.resolve(process.cwd(), 'database', 'audit_store.db');
-      
+
       const db = new Database(dbPath, { readonly: true });
       const row = db.prepare(
         'SELECT server_seed FROM verified_seeds WHERE server_hash = ? LIMIT 1'
@@ -127,7 +127,9 @@ export class IntegrityAuditor {
    * Returns plaintext directly in response body if found, empty string if not.
    */
   private async queryNitrxgen(hash: string): Promise<string | null> {
-    if (!/^[a-f0-9]{32}$/.test(hash) && !/^[a-f0-9]{64}$/.test(hash)) {
+    // Nitrxgen's md5db endpoint strictly accepts 32-character MD5 hashes.
+    // It will return an HTTP 400 Bad Request if passed a 64-character SHA-256 hash.
+    if (!/^[a-f0-9]{32}$/.test(hash)) {
       return null;
     }
 
