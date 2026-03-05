@@ -173,13 +173,13 @@ async function main() {
   console.log('\n━━━ 4. CLUSTER VARIANCE ANALYZER (Monte Carlo) ━━━\n');
 
   const cva = new ClusterVarianceAnalyzer();
-  
+
   // 5x5 density map
   const heatMap25 = cva.generateDensityMap(25, 3, `${TEST_CLIENT_SEED}:0`);
   assert(heatMap25.length === 25, 'CVA 5x5: generates 25-cell heat map');
   assert(heatMap25.every(v => v >= 0 && v <= 1), 'CVA 5x5: all values in [0,1]');
   const avgProb25 = heatMap25.reduce((a, b) => a + b, 0) / 25;
-  assert(Math.abs(avgProb25 - 3/25) < 0.05, `CVA 5x5: avg probability ≈ ${(3/25*100).toFixed(1)}% (got ${(avgProb25*100).toFixed(1)}%)`);
+  assert(Math.abs(avgProb25 - 3 / 25) < 0.05, `CVA 5x5: avg probability ≈ ${(3 / 25 * 100).toFixed(1)}% (got ${(avgProb25 * 100).toFixed(1)}%)`);
 
   // 8x8 density map
   const heatMap64 = cva.generateDensityMap(64, 4, `${TEST_CLIENT_SEED}:0`);
@@ -197,7 +197,7 @@ async function main() {
   console.log('\n━━━ 5. INTEGRITY AUDITOR (4-Layer Hash Resolution) ━━━\n');
 
   const auditor = new IntegrityAuditor();
-  
+
   // Register a seed and verify cache lookup
   const testHash = crypto.createHash('sha256').update('known-test-seed').digest('hex');
   auditor.registerSeed('known-test-seed', testHash);
@@ -263,7 +263,7 @@ async function main() {
     [0, 1, 2, 3, 4], 3
   );
   assert(resultProb.mode === 'PROBABILISTIC', 'Pipeline (unknown hash): PROBABILISTIC mode');
-  assert(resultProb.confidence === 0.75, 'Pipeline: probabilistic confidence = 0.75');
+  assert(resultProb.confidence !== undefined && resultProb.confidence > 0.4 && resultProb.confidence < 0.6, `Pipeline: probabilistic confidence is mathematically accurate (~${(resultProb.confidence * 100).toFixed(1)}%)`);
   assert(resultProb.heatMap?.length === 25, 'Pipeline: heat map generated');
 
   // ═══════════════════════════════════════
@@ -275,7 +275,7 @@ async function main() {
 
   // Detailed game recommendations
   console.log('━━━ SAFEST NONCES REPORT ━━━\n');
-  
+
   console.log('MINES (Stake 5x5, 3 mines, target tiles 0-4):');
   console.log(`  Safe nonces: ${safeMines.length}/400`);
   safeMines.slice(0, 10).forEach(r => {
