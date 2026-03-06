@@ -42,7 +42,8 @@ export class ClientSeedOptimizer {
         targetTiles: number[],
         mineCount: number = 3,
         totalCells: number = 25,
-        maxSearchTimeMs: number = 2000
+        maxSearchTimeMs: number = 2000,
+        platform?: 'stake' | 'roobet'
     ): OptimizationResult {
         const startTime = performance.now();
         let bestSeed = this.generateRandomSeed();
@@ -56,7 +57,7 @@ export class ClientSeedOptimizer {
             while (performance.now() - startTime < maxSearchTimeMs) {
                 iterations++;
                 const candidateSeed = this.generateRandomSeed();
-                const mines = generateMinePositions(unhashedServerSeed, candidateSeed, nonce, mineCount, totalCells);
+                const mines = generateMinePositions(unhashedServerSeed, candidateSeed, nonce, mineCount, totalCells, platform);
 
                 const isCompletelySafe = !targetTiles.some(t => mines.includes(t));
                 if (isCompletelySafe) {
@@ -92,7 +93,7 @@ export class ClientSeedOptimizer {
                 // Simulate potential unhashed seeds by hashing variants of the actual hash
                 // This measures the client seed's geometric resilience to random server seeds
                 const simServerSeed = `sim-${serverSeedHash}-${i}`;
-                const mines = generateMinePositions(simServerSeed, candidateSeed, nonce, mineCount, totalCells);
+                const mines = generateMinePositions(simServerSeed, candidateSeed, nonce, mineCount, totalCells, platform);
                 if (!targetTiles.some(t => mines.includes(t))) {
                     safeHits++;
                 }

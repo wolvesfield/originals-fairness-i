@@ -1,0 +1,20 @@
+completed	success	chore: fix deployment lint error	Deploy to GitHub Pages	main	push	22704805780	1m25s	2026-03-05T06:06:32Z
+completed	failure	refactor(ui): Remove Keno, Crash, and Batch tabs to strictly focus on…	Deploy to GitHub Pages	main	push	22704283072	43s	2026-03-05T05:47:00Z
+completed	failure	test: Fix hardcoded probabilistic confidence assert in fullRegression	Deploy to GitHub Pages	main	push	22704144227	45s	2026-03-05T05:41:43Z
+completed	failure	test: Add Live Hunt script for Entropy Vulnerability scanning	Deploy to GitHub Pages	main	push	22702734345	32s	2026-03-05T04:45:07Z
+completed	failure	chore: remove vite_out	Deploy to GitHub Pages	main	push	22701342103	38s	2026-03-05T03:48:22Z
+completed	success	⚡ Optimize SeedInfluenceAnalyzer JSON serialization loop (#27)	Deploy to GitHub Pages	main	push	22701287434	1m18s	2026-03-05T03:46:04Z
+completed	cancelled	🧹 [code health improvement] Replace console.log with a standard logge…	Deploy to GitHub Pages	main	push	22701284433	11s	2026-03-05T03:45:56Z
+completed	cancelled	🔒 Fix unsafe JSON parsing DoS vulnerability in seeds API (#22)	Deploy to GitHub Pages	main	push	22701283168	4s	2026-03-05T03:45:53Z
+completed	cancelled	🧹 [code health] Add error logging to useKV hook (#21)	Deploy to GitHub Pages	main	push	22701281891	5s	2026-03-05T03:45:49Z
+completed	cancelled	Restrict permissive CORS policy (#20)	Deploy to GitHub Pages	main	push	22701280864	4s	2026-03-05T03:45:46Z
+completed	cancelled	⚡ Optimize memory usage in entropy_auditor.py (#19)	Deploy to GitHub Pages	main	push	22701279452	5s	2026-03-05T03:45:42Z
+completed	success	Deploy to GitHub Pages	Deploy to GitHub Pages	main	workflow_dispatch	22365679045	1m45s	2026-02-24T19:00:40Z
+completed	success	Merge pull request #13 from wolvesfield/copilot/fix-github-actions-de…	Deploy to GitHub Pages	main	push	22329861331	1m5s	2026-02-23T23:45:19Z
+completed	success	Deploy to GitHub Pages	Deploy to GitHub Pages	main	workflow_dispatch	22329081433	59s	2026-02-23T23:18:54Z
+completed	success	fix: set vite base path to /originals-fairness-i/ for GitHub Pages de…	Deploy to GitHub Pages	main	push	22329039304	59s	2026-02-23T23:17:28Z
+completed	success	Deploy to GitHub Pages	Deploy to GitHub Pages	main	workflow_dispatch	22329004619	1m2s	2026-02-23T23:16:18Z
+completed	cancelled	Deploy to GitHub Pages	Deploy to GitHub Pages	main	workflow_dispatch	22328976024	57s	2026-02-23T23:15:24Z
+completed	success	fix: revert eslint to ^9.39.3 (10.x breaks eslint-plugin-react-hooks …	Deploy to GitHub Pages	main	push	22328895517	1m42s	2026-02-23T23:12:50Z
+completed	failure	chore: bump eslint from 9.28.0 to ^10.0.2 (resolves dependabot PR#1)	Deploy to GitHub Pages	main	push	22328713461	20s	2026-02-23T23:06:43Z
+completed	success	Bump uuid from 11.1.0 to 13.0.0	Deploy to GitHub Pages	main	push	22328646003	1m57s	2026-02-23T23:04:27Z

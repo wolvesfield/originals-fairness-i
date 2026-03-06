@@ -18,6 +18,7 @@
     "../scripts/**/*.ts",
     "../src/db/**/*.ts",
     "../src/utils/**/*.ts",
+    "../src/analysis/**/*.ts",
     "../src/lib/types.ts"
   ]
 }

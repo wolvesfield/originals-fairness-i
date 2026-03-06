@@ -1,0 +1,86 @@
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\assembly\index.ts
+   5:7   warning  'K' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  20:10  warning  'ch' is defined but never used. Allowed unused vars must match /^_/u          @typescript-eslint/no-unused-vars
+  24:10  warning  'maj' is defined but never used. Allowed unused vars must match /^_/u         @typescript-eslint/no-unused-vars
+  28:10  warning  'sig0' is defined but never used. Allowed unused vars must match /^_/u        @typescript-eslint/no-unused-vars
+  32:10  warning  'sig1' is defined but never used. Allowed unused vars must match /^_/u        @typescript-eslint/no-unused-vars
+  36:10  warning  'gamma0' is defined but never used. Allowed unused vars must match /^_/u      @typescript-eslint/no-unused-vars
+  40:10  warning  'gamma1' is defined but never used. Allowed unused vars must match /^_/u      @typescript-eslint/no-unused-vars
+  44:7   warning  'SHA256' is defined but never used. Allowed unused vars must match /^_/u      @typescript-eslint/no-unused-vars
+  50:10  warning  'data' is defined but never used. Allowed unused args must match /^_/u        @typescript-eslint/no-unused-vars
+  56:48  warning  'clientSeed' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+  56:68  warning  'nonce' is defined but never used. Allowed unused args must match /^_/u       @typescript-eslint/no-unused-vars
+  56:80  warning  'cursor' is defined but never used. Allowed unused args must match /^_/u      @typescript-eslint/no-unused-vars
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\scripts\fullRegression.ts
+  19:7  warning  'TEST_NONCE' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\App.tsx
+   8:20  warning  'NumberSquareEight' is defined but never used. Allowed unused vars must match /^_/u       @typescript-eslint/no-unused-vars
+   8:60  warning  'Plugs' is defined but never used. Allowed unused vars must match /^_/u                   @typescript-eslint/no-unused-vars
+  23:48  warning  'AnalysisModeResult' is defined but never used. Allowed unused vars must match /^_/u      @typescript-eslint/no-unused-vars
+  39:10  warning  'verifications' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\acquisition\liveStream.ts
+  5:6  warning  'JsonLike' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\acquisition\stakeApi.ts
+   43:11  warning  'StakeMyBetHistoryData' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  105:10  warning  'extractSeedSnapshot' is defined but never used. Allowed unused vars must match /^_/u    @typescript-eslint/no-unused-vars
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\analysis\ClusterVarianceAnalyzer.ts
+  180:9  error  'assignments' is never reassigned. Use 'const' instead  prefer-const
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\automation\Orchestrator.ts
+  108:5  warning  Unused eslint-disable directive (no problems were reported from 'no-constant-condition')
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\components\ApiConnections.tsx
+   50:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  421:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  438:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  466:23  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\components\MinesGame.tsx
+   42:10  warning  'markovHeatMap' is assigned a value but never used. Allowed unused vars must match /^_/u                                 @typescript-eslint/no-unused-vars
+  136:6   warning  React Hook useEffect has missing dependencies: 'cva' and 'gridSize'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+  290:17  warning  'baseRate' is assigned a value but never used. Allowed unused vars must match /^_/u                                      @typescript-eslint/no-unused-vars
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\components\SeedOptimizerPanel.tsx
+  4:24  warning  'ShieldCheck' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\components\StakeMyBets.tsx
+  8:10  warning  'buildProxiedUrl' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\components\ui\badge.tsx
+  46:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\components\ui\button.tsx
+  59:18  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\components\ui\form.tsx
+  157:3  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\components\ui\navigation-menu.tsx
+  167:3  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\components\ui\sidebar.tsx
+  725:3  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\components\ui\toggle.tsx
+  45:18  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\controllers\MasterController.ts
+  441:20  warning  'mineCount' is defined but never used. Allowed unused args must match /^_/u        @typescript-eslint/no-unused-vars
+  441:39  warning  'totalCells' is defined but never used. Allowed unused args must match /^_/u       @typescript-eslint/no-unused-vars
+  447:11  warning  'mod100' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\server\express.ts
+  20:3  warning  'generateFloat' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\arcan_e9q9t\OneDrive\Desktop\originals-fairness-i\src\workers\aimingWorker.ts
+  135:10  warning  'generateMinePositions' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+Γ£û 42 problems (1 error, 41 warnings)
+  1 error and 1 warning potentially fixable with the `--fix` option.
+
