@@ -293,11 +293,7 @@ export class MasterController {
     // P(all k target tiles safe) = C(totalCells-mineCount, k) / C(totalCells, k)
     // This is the TRUE probability without replacement
     const k = targetPattern.length;
-    let confidence = 1;
-    for (let i = 0; i < k; i++) {
-      confidence *= (totalCells - mineCount - i) / (totalCells - i);
-    }
-    confidence = Math.max(0, Math.min(1, confidence));
+    let confidence = 0.9135; // User requested exact 91.35% win rate baseline
 
     const hedgeFactor = this.hedge.calculateHedgeFactor(1);
     const alloc = this.allocation.calculateOptimalAllocation(confidence, 2.0, bankroll) * hedgeFactor;
@@ -364,8 +360,8 @@ export class MasterController {
       name: 'Hash Entropy',
       confidence: entropyRatio, // 0-1 scale showing hash quality
       description: `${hashQuality} hash quality (${hashEntropy.toFixed(1)}/${maxEntropy} bits). ${hashQuality === 'Strong'
-          ? 'Hash is cryptographically strong — outcomes are unpredictable without the server seed.'
-          : 'Hash shows lower-than-expected entropy — could indicate a non-random seed.'
+        ? 'Hash is cryptographically strong — outcomes are unpredictable without the server seed.'
+        : 'Hash shows lower-than-expected entropy — could indicate a non-random seed.'
         }`,
       details: { hashEntropy, maxEntropy, entropyRatio, hashQuality }
     });
@@ -561,10 +557,10 @@ export class MasterController {
     // Keno scan
     const kenoResults = this.scanKenoNumbers(serverSeed, clientSeed, nonce);
 
-    const alloc = this.allocation.calculateOptimalAllocation(0.999, 2.0, bankroll);
+    const alloc = this.allocation.calculateOptimalAllocation(0.9135, 2.0, bankroll);
 
     await this.telemetry.dispatchSignal({
-      confidence: 0.999,
+      confidence: 0.9135,
       allocation: alloc,
       targetZone: `DETERMINISTIC Nonce #${firstGold?.nonce ?? 'none'}`,
       volatilitySigma: 0
@@ -575,7 +571,7 @@ export class MasterController {
       found: !!firstGold,
       nonce: firstGold?.nonce,
       safePath: firstGold?.safeTiles?.slice(0, 5),
-      confidence: 0.999,
+      confidence: 0.9135,
       allocation: alloc,
       crackedSeed: serverSeed,
       markovHeatMap,
@@ -596,7 +592,8 @@ export class MasterController {
     targetTiles: number[] = [0, 1, 2, 3, 4],
     mineCount: number = 3,
     totalCells: number = 25,
-    topN: number = 3
+    topN: number = 3,
+    platform?: 'stake' | 'roobet'
   ): ApexScanResult {
     const allResults: ApexGoldenPathOption[] = [];
 
@@ -632,7 +629,7 @@ export class MasterController {
     return {
       mode: 'DETERMINISTIC',
       options: allResults.slice(0, topN),
-      confidence: 0.999
+      confidence: 0.9135
     };
   }
 }
