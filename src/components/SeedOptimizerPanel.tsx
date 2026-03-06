@@ -13,6 +13,7 @@ interface SeedOptimizerPanelProps {
     mineCount: number
     totalCells: number
     onApplySeed: (seed: string) => void
+    platform?: 'stake' | 'roobet'
 }
 
 export default function SeedOptimizerPanel({
@@ -22,7 +23,8 @@ export default function SeedOptimizerPanel({
     targetTiles,
     mineCount,
     totalCells,
-    onApplySeed
+    onApplySeed,
+    platform
 }: SeedOptimizerPanelProps) {
     const [isOptimizing, setIsOptimizing] = useState(false)
     const [bestSeed, setBestSeed] = useState<string | null>(null)
@@ -52,7 +54,8 @@ export default function SeedOptimizerPanel({
                 targetTiles,
                 mineCount,
                 totalCells,
-                2500 // Search aggressively for 2.5 seconds block time
+                2500, // Search aggressively for 2.5 seconds block time
+                platform
             )
 
             setBestSeed(result.bestSeed)
