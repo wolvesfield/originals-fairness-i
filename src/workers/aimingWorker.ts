@@ -98,30 +98,32 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
+let currentHmacCache: any = null;
+let currentHmacSeed: string | null = null;
 
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
+function getCachedHmac(serverSeed: string): any {
+  if (currentHmacSeed === serverSeed && currentHmacCache) {
+    return currentHmacCache;
+  }
+  currentHmacSeed = serverSeed;
+  currentHmacCache = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  return currentHmacCache;
 }
 
 /**
  * Generate Nth deterministic float for a given round.
+ * ⚡ Bolt Optimization: Uses cached HMAC instance and fast bitwise shifts to avoid hex strings.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  const hmac = getCachedHmac(serverSeed);
+
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  const int = hash.words[0] >>> 0;
+  return int / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

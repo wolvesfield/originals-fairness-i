@@ -5,6 +5,30 @@ import CryptoJS from 'crypto-js'
 // Produces a value in [0, 1) – never uses Math.random().
 // ---------------------------------------------------------------------------
 
+// Bounded LRU Cache for HMAC instances to prevent memory leaks and speed up hashing
+const HMAC_CACHE_SIZE = 100;
+const hmacCache = new Map<string, any>();
+
+function getCachedHmac(serverSeed: string): any {
+  if (hmacCache.has(serverSeed)) {
+    const hmac = hmacCache.get(serverSeed);
+    hmacCache.delete(serverSeed);
+    hmacCache.set(serverSeed, hmac); // Move to end (most recently used)
+    return hmac;
+  }
+
+  const hmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  hmacCache.set(serverSeed, hmac);
+
+  if (hmacCache.size > HMAC_CACHE_SIZE) {
+    const firstKey = hmacCache.keys().next().value;
+    if (firstKey !== undefined) {
+      hmacCache.delete(firstKey);
+    }
+  }
+  return hmac;
+}
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  * Returns the full hex digest (64 hex chars / 256 bits).
@@ -13,7 +37,11 @@ export function hmacSha256(serverSeed: string, clientSeed: string, nonce: number
   const message = platform === 'roobet'
     ? `${clientSeed}-${nonce}-${cursor}`
     : `${clientSeed}:${nonce}:${cursor}`
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+
+  const hmac = getCachedHmac(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  return hmac.finalize().toString(CryptoJS.enc.Hex)
 }
 
 /**
@@ -28,10 +56,22 @@ export function hashToFloat(hash: string): number {
 
 /**
  * Convenience: generate the Nth deterministic float for a given round.
+ * ⚡ Bolt Optimization: Uses cached HMAC instance and fast bitwise shifts to avoid hex strings.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  const hmac = getCachedHmac(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  // Hash words are 32-bit big-endian integers.
+  // We take the first word (first 4 bytes / 8 hex chars), make it unsigned, and divide.
+  const int = hash.words[0] >>> 0;
+  return int / 4294967296;
 }
 
 // ---------------------------------------------------------------------------
