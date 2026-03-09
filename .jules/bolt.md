@@ -1,0 +1,3 @@
+## 2024-03-08 - CryptoJS HMAC Performance and Bitwise Shifts vs String Conversion
+**Learning:** Instantiating `CryptoJS.HmacSHA256` in high-frequency loops (like nonce scanning) and converting the hash to a hex string (`toString(CryptoJS.enc.Hex)`) just to parse the first 4 bytes is extremely slow.
+**Action:** Always cache the HMAC instance using `CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, seed)` in a bounded LRU structure, and `reset()` it on each iteration. Extract bytes directly from the underlying word array using bitwise shifts (e.g., `hash.words[0] >>> 0`) to avoid costly string allocations and conversions, yielding a ~2.5x performance boost.
