@@ -45,6 +45,28 @@ self.onmessage = (event: MessageEvent) => {
       progress = new Int32Array(progressBuffer);
     }
 
+    // Performance Optimization: Cache HMAC instance for the serverSeed
+    // This avoids creating a new HMAC instance for every iteration/float generation
+    const hmacTemplate = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+
+    // Performance Optimization: Pre-allocate structures to avoid garbage collection
+    // overhead inside the high-frequency loop.
+    let cells: Uint8Array | undefined;
+    let targetMap: Uint8Array | undefined;
+    let drawnMap: Uint8Array | undefined;
+
+    if (gameType === 'MINES') {
+      const totalCells = gameConfig.totalCells ?? 25;
+      cells = new Uint8Array(totalCells);
+      targetMap = new Uint8Array(totalCells);
+      for (const t of targetPattern) {
+        if (t < totalCells) targetMap[t] = 1;
+      }
+    } else if (gameType === 'KENO') {
+      const maxNum = gameConfig.maxNum ?? 40;
+      drawnMap = new Uint8Array(maxNum + 1); // 1-indexed
+    }
+
     for (let nonce = startNonce; nonce <= endNonce; nonce++) {
       // Check if another worker already found a result (kill-switch via Atomics)
       if (progress && Atomics.load(progress, 1) === 1) {
@@ -58,19 +80,19 @@ self.onmessage = (event: MessageEvent) => {
         case 'MINES': {
           const mineCount = gameConfig.mineCount ?? 3;
           const totalCells = gameConfig.totalCells ?? 25;
-          isGold = validateMinesState(serverSeed, clientSeed, nonce, targetPattern, mineCount, totalCells);
+          isGold = validateMinesState(hmacTemplate, clientSeed, nonce, targetMap!, cells!, mineCount, totalCells);
           break;
         }
         case 'KENO': {
           const drawCount = gameConfig.drawCount ?? 20;
           const maxNum = gameConfig.maxNum ?? 40;
           const minHits = gameConfig.minKenoHits ?? Math.ceil(targetPattern.length * 0.5);
-          isGold = validateKenoState(serverSeed, clientSeed, nonce, targetPattern, drawCount, maxNum, minHits);
+          isGold = validateKenoState(hmacTemplate, clientSeed, nonce, targetPattern, drawnMap!, drawCount, maxNum, minHits);
           break;
         }
         case 'CRASH': {
           const targetMultiplier = gameConfig.targetMultiplier ?? 2.0;
-          isGold = validateCrashState(serverSeed, clientSeed, nonce, targetMultiplier);
+          isGold = validateCrashState(hmacTemplate, clientSeed, nonce, targetMultiplier);
           break;
         }
       }
@@ -99,29 +121,16 @@ self.onmessage = (event: MessageEvent) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
+ * Optimized float generation using a pre-initialized HMAC template.
+ * Extracts the hash word directly instead of converting to Hex string.
  */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
+function generateFloatOpt(hmacTemplate: any, clientSeed: string, nonce: number, cursor: number): number {
   const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
-
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
-}
-
-/**
- * Generate Nth deterministic float for a given round.
- */
-function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const hmac = hmacTemplate.clone();
+  hmac.update(message);
+  const hash = hmac.finalize();
+  // hash.words[0] contains the first 4 bytes. >>> 0 casts to unsigned 32-bit int.
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -129,47 +138,34 @@ function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cu
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Returns mineCount unique cell indices using Fisher-Yates shuffle.
- * Consumes one float per swap via incrementing cursor.
- */
-function generateMinePositions(
-  serverSeed: string, clientSeed: string, nonce: number,
-  mineCount: number, totalCells: number
-): number[] {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
-  let cursor = 0;
-
-  for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
-    cursor++;
-    const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
-  }
-
-  return cells.slice(totalCells - mineCount);
-}
-
-/**
  * Truncated search: early-exit if any target tile is already in a mine swap
  * position BEFORE finishing all mineCount iterations. This avoids computing
  * all mine positions when we can already tell a target tile is mined.
+ *
+ * Optimized: Uses pre-allocated Uint8Arrays to prevent memory allocations.
  */
 function validateMinesState(
-  serverSeed: string, clientSeed: string, nonce: number,
-  targetPattern: number[], mineCount: number, totalCells: number
+  hmacTemplate: any, clientSeed: string, nonce: number,
+  targetMap: Uint8Array, cells: Uint8Array, mineCount: number, totalCells: number
 ): boolean {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  for (let i = 0; i < totalCells; i++) {
+    cells[i] = i;
+  }
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    const float = generateFloatOpt(hmacTemplate, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
+
+    // Swap
+    const temp = cells[i];
+    cells[i] = cells[j];
+    cells[j] = temp;
 
     // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
+    // Using O(1) array lookup instead of Set.has
+    if (targetMap[cells[i]] === 1) {
       return false;
     }
   }
@@ -181,31 +177,36 @@ function validateMinesState(
 // Keno — Set-based collision avoidance (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateKenoNumbers(
-  serverSeed: string, clientSeed: string, nonce: number,
-  count: number, maxNum: number
-): number[] {
-  const drawn = new Set<number>();
+/**
+ * Populates a pre-allocated drawnMap with Keno draws, returning the number
+ * of matches (hits) against selectedNumbers.
+ */
+function validateKenoState(
+  hmacTemplate: any, clientSeed: string, nonce: number,
+  selectedNumbers: number[], drawnMap: Uint8Array, drawCount: number, maxNum: number, minHits: number
+): boolean {
+  drawnMap.fill(0);
   let cursor = 0;
+  let drawnSize = 0;
 
-  while (drawn.size < count) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+  while (drawnSize < drawCount) {
+    const float = generateFloatOpt(hmacTemplate, clientSeed, nonce, cursor);
     cursor++;
     const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
+    if (drawnMap[num] === 0) {
+      drawnMap[num] = 1;
+      drawnSize++;
+    }
   }
 
-  return Array.from(drawn);
-}
+  let hits = 0;
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    if (drawnMap[selectedNumbers[i]] === 1) {
+      hits++;
+    }
+  }
 
-function validateKenoState(
-  serverSeed: string, clientSeed: string, nonce: number,
-  selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
-): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  return hits >= minHits;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -213,11 +214,13 @@ function validateKenoState(
 // ─────────────────────────────────────────────────────────────────────────────
 
 function validateCrashState(
-  serverSeed: string, clientSeed: string, nonce: number,
+  hmacTemplate: any, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = hmacTemplate.clone();
+  hmac.update(message);
+  const hash = hmac.finalize().toString(CryptoJS.enc.Hex);
 
   const h = parseInt(hash.slice(0, 13), 16);
 
