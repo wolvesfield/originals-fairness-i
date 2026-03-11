@@ -1,4 +1,5 @@
 import CryptoJS from 'crypto-js'
+import { hmacCache } from './hmacCache'
 
 // ---------------------------------------------------------------------------
 // Core: Deterministic float from HMAC-SHA256
@@ -13,7 +14,11 @@ export function hmacSha256(serverSeed: string, clientSeed: string, nonce: number
   const message = platform === 'roobet'
     ? `${clientSeed}-${nonce}-${cursor}`
     : `${clientSeed}:${nonce}:${cursor}`
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+
+  const inst = hmacCache.get(serverSeed)
+  inst.reset()
+  inst.update(message)
+  return inst.finalize().toString(CryptoJS.enc.Hex)
 }
 
 /**
@@ -28,10 +33,21 @@ export function hashToFloat(hash: string): number {
 
 /**
  * Convenience: generate the Nth deterministic float for a given round.
+ * Optimized with cached HMAC instance and direct word array access.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  const inst = hmacCache.get(serverSeed)
+  inst.reset()
+  inst.update(message)
+  const hashObj = inst.finalize()
+
+  // Convert first 32 bits directly to integer rather than toString(Hex) + substring
+  const int = hashObj.words[0] >>> 0
+  return int / 4294967296
 }
 
 // ---------------------------------------------------------------------------
@@ -51,10 +67,17 @@ export function generateFloat(serverSeed: string, clientSeed: string, nonce: num
  */
 export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonce: number): number {
   const message = `${clientSeed}:${nonce}`
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
 
-  // First 13 hex chars → integer (fits within JS safe integer range: 16^13 ≈ 4.5e15 < 2^53)
-  const h = parseInt(hash.slice(0, 13), 16)
+  const inst = hmacCache.get(serverSeed)
+  inst.reset()
+  inst.update(message)
+  const hashObj = inst.finalize()
+
+  // First 13 hex chars = 52 bits. Extract directly from word array.
+  // word[0] gives 32 bits. word[1] gives remaining 20 bits.
+  const word0 = hashObj.words[0] >>> 0
+  const word1 = hashObj.words[1] >>> 0
+  const h = word0 * 1048576 + (word1 >>> 12)
 
   // House edge: ~3 % of rounds instant-crash at 1.00x
   if (h % 33 === 0) {
