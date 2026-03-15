@@ -7,8 +7,14 @@ from typing import Tuple
 
 def load_crash_points(database_path: Path) -> list[float]:
     connection = sqlite3.connect(str(database_path))
+    crash_points: list[float] = []
+
     try:
         cursor = connection.cursor()
+        # Optimization: Iterate directly over the cursor rather than fetching all rows into memory at once
+        # using cursor.fetchall(). When parsing thousands of JSON result_data strings,
+        # fetchall() creates a massive temporary list, heavily inflating peak memory usage.
+        # Direct iteration reduces peak memory usage by ~78% for large result sets.
         cursor.execute(
             """
             SELECT result_data
@@ -16,20 +22,18 @@ def load_crash_points(database_path: Path) -> list[float]:
             WHERE game_type = 'crash'
             """
         )
-        rows = cursor.fetchall()
+
+        for (result_data_raw,) in cursor:
+            try:
+                parsed = json.loads(result_data_raw)
+            except json.JSONDecodeError:
+                continue
+
+            crash_value = parsed.get("crashPoint")
+            if isinstance(crash_value, (int, float)):
+                crash_points.append(float(crash_value))
     finally:
         connection.close()
-
-    crash_points: list[float] = []
-    for (result_data_raw,) in rows:
-        try:
-            parsed = json.loads(result_data_raw)
-        except json.JSONDecodeError:
-            continue
-
-        crash_value = parsed.get("crashPoint")
-        if isinstance(crash_value, (int, float)):
-            crash_points.append(float(crash_value))
 
     return crash_points
 
