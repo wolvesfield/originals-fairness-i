@@ -1,4 +1,5 @@
 import CryptoJS from 'crypto-js'
+import { HMACCaching } from './hmacCache'
 
 // ---------------------------------------------------------------------------
 // Core: Deterministic float from HMAC-SHA256
@@ -13,7 +14,12 @@ export function hmacSha256(serverSeed: string, clientSeed: string, nonce: number
   const message = platform === 'roobet'
     ? `${clientSeed}-${nonce}-${cursor}`
     : `${clientSeed}:${nonce}:${cursor}`
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+
+  // ⚡ Bolt: Use bounded LRU cache for HMAC instances to prevent memory leaks
+  // and reduce garbage collection overhead during high-frequency crypto operations.
+  const hmac = HMACCaching.getHmac(serverSeed)
+  hmac.update(message)
+  return hmac.finalize().toString(CryptoJS.enc.Hex)
 }
 
 /**
@@ -28,10 +34,21 @@ export function hashToFloat(hash: string): number {
 
 /**
  * Convenience: generate the Nth deterministic float for a given round.
+ * ⚡ Bolt: Fast-path optimization to avoid toString(Hex) + slice overhead.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  const hmac = HMACCaching.getHmac(serverSeed)
+  hmac.update(message)
+  const hash = hmac.finalize()
+
+  // ⚡ Bolt: Directly access the 32-bit word array (treating as unsigned Int32)
+  // This bypasses the expensive .toString(Hex) -> .slice() -> parseInt() chain
+  const int = hash.words[0] >>> 0
+  return int / 4294967296
 }
 
 // ---------------------------------------------------------------------------
@@ -51,7 +68,10 @@ export function generateFloat(serverSeed: string, clientSeed: string, nonce: num
  */
 export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonce: number): number {
   const message = `${clientSeed}:${nonce}`
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+  // ⚡ Bolt: Use bounded LRU cache for HMAC instances
+  const hmac = HMACCaching.getHmac(serverSeed)
+  hmac.update(message)
+  const hash = hmac.finalize().toString(CryptoJS.enc.Hex)
 
   // First 13 hex chars → integer (fits within JS safe integer range: 16^13 ≈ 4.5e15 < 2^53)
   const h = parseInt(hash.slice(0, 13), 16)
