@@ -98,30 +98,34 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
+// ⚡ Bolt: Cache HMAC instances within the worker to avoid creating new instances
+// on every iteration. This is a critical fast-path for high-frequency scanning.
+let cachedServerSeed: string | null = null;
+let cachedHmac: any = null;
 
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
+function getWorkerHmac(serverSeed: string) {
+  if (serverSeed !== cachedServerSeed) {
+    cachedServerSeed = serverSeed;
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    cachedHmac.reset();
+  }
+  return cachedHmac;
 }
 
 /**
  * Generate Nth deterministic float for a given round.
+ * ⚡ Bolt: Fast-path optimization to avoid toString(Hex) + slice overhead.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  const hmac = getWorkerHmac(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  // Directly access the 32-bit word array (treating as unsigned Int32)
+  const int = hash.words[0] >>> 0;
+  return int / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,7 +221,9 @@ function validateCrashState(
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = getWorkerHmac(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize().toString(CryptoJS.enc.Hex);
 
   const h = parseInt(hash.slice(0, 13), 16);
 
