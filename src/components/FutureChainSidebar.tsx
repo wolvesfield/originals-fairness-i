@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 
 interface Prediction {
   nonce: number;
@@ -6,7 +6,8 @@ interface Prediction {
   isGold: boolean;
 }
 
-export const FutureChainSidebar: React.FC<{ predictions: Prediction[] }> = ({ predictions }) => {
+// Memoized to prevent unnecessary re-renders of the 50-item list.
+export const FutureChainSidebar = memo<{ predictions: Prediction[] }>(({ predictions }) => {
   return (
     <div className="w-48 bg-slate-900 border-l border-slate-700 p-3 overflow-y-auto max-h-screen">
       <h3 className="text-sm font-bold text-white mb-2 uppercase tracking-wider">Next 50 Nonces</h3>
@@ -23,4 +24,4 @@ export const FutureChainSidebar: React.FC<{ predictions: Prediction[] }> = ({ pr
       ))}
     </div>
   );
-};
+});
