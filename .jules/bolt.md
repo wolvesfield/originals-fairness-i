@@ -1,0 +1,3 @@
+## 2024-03-19 - Optimize CryptoJS HMAC high-frequency usage
+**Learning:** Re-instantiating `CryptoJS.HmacSHA256` repeatedly in a tight loop is extremely slow and memory-intensive because it generates new object references on every iteration. Additionally, calling `.toString(CryptoJS.enc.Hex)` just to extract numerical bits forces string allocation and parsing.
+**Action:** In ultra-high frequency loops, cache the algo instance via `CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed)`, and reuse it on each iteration by calling `hmacAlgo.reset()` followed by `hmacAlgo.update(message)`. Extract integer representations directly from the resulting word array (`hash.words[0] >>> 0`) rather than creating intermediate hex strings.
