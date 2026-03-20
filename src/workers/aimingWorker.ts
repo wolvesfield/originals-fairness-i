@@ -98,12 +98,42 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Cache HMAC instances by serverSeed to avoid expensive initialization
+// Use a bounded cache to prevent memory leaks in long-lived workers
+const HMAC_CACHE_MAX_SIZE = 10;
+const hmacCache = new Map<string, any>();
+
+function getHmacInstance(serverSeed: string) {
+  if (hmacCache.has(serverSeed)) {
+    // Move to end to mark as recently used
+    const instance = hmacCache.get(serverSeed);
+    hmacCache.delete(serverSeed);
+    hmacCache.set(serverSeed, instance);
+    return instance;
+  }
+
+  if (hmacCache.size >= HMAC_CACHE_MAX_SIZE) {
+    // Remove oldest entry (first item in Map)
+    const oldestKey = hmacCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      hmacCache.delete(oldestKey);
+    }
+  }
+
+  const newInstance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  hmacCache.set(serverSeed, newInstance);
+  return newInstance;
+}
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  */
 function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
   const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = getHmacInstance(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  return hmac.finalize().toString(CryptoJS.enc.Hex);
 }
 
 /**
@@ -118,10 +148,17 @@ function hashToFloat(hash: string): number {
 
 /**
  * Generate Nth deterministic float for a given round.
+ * Optimized: avoids converting the full hash to a hex string.
+ * Extracts the first 32-bit word directly and converts to float.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  const hmac = getHmacInstance(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  const hashWord = hmac.finalize();
+  const intWord = hashWord.words[0] >>> 0; // Convert signed 32-bit to unsigned
+  return intWord / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,7 +254,10 @@ function validateCrashState(
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = getHmacInstance(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize().toString(CryptoJS.enc.Hex);
 
   const h = parseInt(hash.slice(0, 13), 16);
 
