@@ -17,7 +17,6 @@ import {
   generateMinePositions,
   generateKenoNumbers,
   calculateCrashPoint,
-  generateFloat,
 } from '../utils/fairnessEngine'
 
 const app = express()
@@ -60,11 +59,17 @@ app.post('/aim/mines', (req, res) => {
   const cap = Math.min(lookAhead, MAX_LOOK_AHEAD)
   const golden: Array<{ nonce: number; mines: number[]; safeTiles: number[] }> = []
 
+  // ⚡ Bolt: Cache set and array allocation outside the loop to reduce redundant allocations
+  const targetTilesSet = new Set(targetTiles)
+  const allCells = Array.from({ length: totalCells }, (_, i) => i)
+
   for (let n = nonce; n < nonce + cap; n++) {
     const mines = generateMinePositions(serverSeed, clientSeed, n, mineCount, totalCells)
-    const allSafe = !targetTiles.some((t: number) => mines.includes(t))
+    // ⚡ Bolt: Use Set.has instead of Array.includes to reduce search complexity from O(N) to O(1)
+    const allSafe = !mines.some((m: number) => targetTilesSet.has(m))
     if (allSafe) {
-      const safeTiles = Array.from({ length: totalCells }, (_, i) => i).filter(i => !mines.includes(i))
+      // ⚡ Bolt: Use cached allCells array
+      const safeTiles = allCells.filter(i => !mines.includes(i))
       golden.push({ nonce: n, mines, safeTiles })
     }
   }
@@ -99,9 +104,13 @@ app.post('/aim/keno', (req, res) => {
   const cap = Math.min(lookAhead, MAX_LOOK_AHEAD)
   const results: Array<{ nonce: number; drawn: number[]; hits: number[]; hitCount: number }> = []
 
+  // ⚡ Bolt: Cache Set outside loop to reduce redundant allocations
+  const playerPicksSet = new Set(playerPicks)
+
   for (let n = nonce; n < nonce + cap; n++) {
     const drawn = generateKenoNumbers(serverSeed, clientSeed, n, drawCount, maxNum)
-    const hits = playerPicks.filter((p: number) => drawn.includes(p))
+    // ⚡ Bolt: Use Set.has instead of Array.includes to reduce search complexity from O(N) to O(1)
+    const hits = drawn.filter((d: number) => playerPicksSet.has(d))
     results.push({ nonce: n, drawn, hits, hitCount: hits.length })
   }
 
