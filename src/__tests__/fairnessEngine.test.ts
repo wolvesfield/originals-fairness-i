@@ -1,6 +1,4 @@
 import {
-  hmacSha256,
-  hashToFloat,
   generateFloat,
   generateMinePositions,
   generateKenoNumbers,
@@ -10,23 +8,6 @@ import {
 const SERVER_SEED = 'test-server-seed-abc123'
 const CLIENT_SEED = 'test-client-seed-xyz789'
 const NONCE = 42
-
-describe('hmacSha256', () => {
-  it('produces a 64-character hex string', () => {
-    const hash = hmacSha256(SERVER_SEED, CLIENT_SEED, NONCE, 0)
-    expect(hash).toHaveLength(64)
-    expect(hash).toMatch(/^[0-9a-f]{64}$/)
-  })
-})
-
-describe('hashToFloat', () => {
-  it('returns a number in [0, 1)', () => {
-    const hash = hmacSha256(SERVER_SEED, CLIENT_SEED, NONCE, 0)
-    const float = hashToFloat(hash)
-    expect(float).toBeGreaterThanOrEqual(0)
-    expect(float).toBeLessThan(1)
-  })
-})
 
 describe('generateFloat', () => {
   it('is deterministic (same inputs produce same output)', () => {

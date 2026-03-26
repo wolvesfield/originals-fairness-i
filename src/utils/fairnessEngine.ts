@@ -5,33 +5,39 @@ import CryptoJS from 'crypto-js'
 // Produces a value in [0, 1) – never uses Math.random().
 // ---------------------------------------------------------------------------
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- * Returns the full hex digest (64 hex chars / 256 bits).
- */
-export function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): string {
-  const message = platform === 'roobet'
-    ? `${clientSeed}-${nonce}-${cursor}`
-    : `${clientSeed}:${nonce}:${cursor}`
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
-}
+// Cache HMAC instances by serverSeed to avoid expensive recreation and hex parsing
+const hmacCache = new Map<string, any>();
+const MAX_CACHE_SIZE = 100;
 
-/**
- * Convert the first 4 bytes (8 hex chars) of a hex hash to a float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-export function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8)
-  const int = parseInt(slice, 16)          // 0 .. 0xFFFFFFFF
-  return int / 4294967296                   // 0 .. < 1
+function getHmacInstance(serverSeed: string): any {
+  if (hmacCache.has(serverSeed)) {
+    return hmacCache.get(serverSeed);
+  }
+  const instance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  if (hmacCache.size >= MAX_CACHE_SIZE) {
+    const firstKey = hmacCache.keys().next().value;
+    if (firstKey) hmacCache.delete(firstKey);
+  }
+  hmacCache.set(serverSeed, instance);
+  return instance;
 }
 
 /**
  * Convenience: generate the Nth deterministic float for a given round.
+ * Optimized to use direct HMAC instance updating and word array parsing.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`;
+
+  const hmac = getHmacInstance(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+
+  // Get first 4 bytes (words[0]) as unsigned 32-bit int and divide to get float in [0, 1)
+  const int = hmac.finalize().words[0] >>> 0;
+  return int / 4294967296;
 }
 
 // ---------------------------------------------------------------------------
