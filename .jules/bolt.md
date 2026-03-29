@@ -1,0 +1,4 @@
+
+## 2025-03-29 - [Optimizing High-Frequency CryptoJS and Array Allocations]
+**Learning:** In ultra-high frequency tasks like background nonce scanning, instantiating new `CryptoJS.algo.HMAC.create` and stringifying hashes with `.toString(CryptoJS.enc.Hex)` are severe performance bottlenecks due to excessive object allocation and string parsing overhead. Using `new Set()` and `Array.from()` inside tight loops also creates immense GC pressure.
+**Action:** Always cache the `HMAC` instance (reusing `.reset()`, `.update()`, `.finalize()`), extract floats or ints directly from the 32-bit `hash.words` array using bitwise math (e.g. `(hash.words[0] >>> 0) / 4294967296`), and replace dynamic Sets/Arrays with pre-allocated zero-initialized `Uint8Array`s to serve as O(1) membership maps or static array replacements.
