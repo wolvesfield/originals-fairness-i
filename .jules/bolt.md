@@ -1,0 +1,3 @@
+## 2025-04-05 - Express API O(N) Loop Optimization
+**Learning:** O(N) `Array.includes()` lookups within the highly-repeated `lookAhead` scan loops in `src/server/express.ts` (`/aim/mines`, `/aim/keno`) create a significant performance bottleneck. Dynamically instantiating baseline arrays inside these loops further wastes memory and CPU.
+**Action:** Always replace O(N) `Array.includes` with O(1) `Set.has` for array intersections inside hot paths. Hoist static data generation (like `Array.from` for cells or converting static targets to a `Set`) outside of loops to minimize redundant allocations and CPU waste.

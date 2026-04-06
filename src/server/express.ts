@@ -60,11 +60,18 @@ app.post('/aim/mines', (req, res) => {
   const cap = Math.min(lookAhead, MAX_LOOK_AHEAD)
   const golden: Array<{ nonce: number; mines: number[]; safeTiles: number[] }> = []
 
+  // ⚡ Bolt Optimization: Hoist base array generation and Set creation
+  const allCells = Array.from({ length: totalCells }, (_, i) => i)
+  const targetTilesSet = new Set(targetTiles)
+
   for (let n = nonce; n < nonce + cap; n++) {
     const mines = generateMinePositions(serverSeed, clientSeed, n, mineCount, totalCells)
-    const allSafe = !targetTiles.some((t: number) => mines.includes(t))
+    // ⚡ Bolt Optimization: Replace O(N) Array.includes with O(1) Set.has
+    const allSafe = !mines.some(m => targetTilesSet.has(m))
+
     if (allSafe) {
-      const safeTiles = Array.from({ length: totalCells }, (_, i) => i).filter(i => !mines.includes(i))
+      const minesSet = new Set(mines)
+      const safeTiles = allCells.filter(i => !minesSet.has(i))
       golden.push({ nonce: n, mines, safeTiles })
     }
   }
@@ -101,7 +108,9 @@ app.post('/aim/keno', (req, res) => {
 
   for (let n = nonce; n < nonce + cap; n++) {
     const drawn = generateKenoNumbers(serverSeed, clientSeed, n, drawCount, maxNum)
-    const hits = playerPicks.filter((p: number) => drawn.includes(p))
+    // ⚡ Bolt Optimization: Replace O(N) Array.includes with O(1) Set.has
+    const drawnSet = new Set(drawn)
+    const hits = playerPicks.filter((p: number) => drawnSet.has(p))
     results.push({ nonce: n, drawn, hits, hitCount: hits.length })
   }
 
