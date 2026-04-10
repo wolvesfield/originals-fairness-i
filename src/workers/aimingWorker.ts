@@ -98,6 +98,21 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Cached HMAC Instance
+// ─────────────────────────────────────────────────────────────────────────────
+let cachedHmac: any = null;
+let cachedServerSeed: string | null = null;
+
+function getHmac(serverSeed: string) {
+  if (serverSeed !== cachedServerSeed) {
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    cachedServerSeed = serverSeed;
+  }
+  cachedHmac.reset();
+  return cachedHmac;
+}
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  */
@@ -120,8 +135,10 @@ function hashToFloat(hash: string): number {
  * Generate Nth deterministic float for a given round.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const hmac = getHmac(serverSeed);
+  hmac.update(`${clientSeed}:${nonce}:${cursor}`);
+  const hash = hmac.finalize();
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,15 +233,16 @@ function validateCrashState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
-  const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = getHmac(serverSeed);
+  hmac.update(`${clientSeed}:${nonce}`);
+  const hash = hmac.finalize();
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  const h = (hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
 
-  const TWO_52 = Math.pow(2, 52);
+  const TWO_52 = 4503599627370496; // Math.pow(2, 52)
   const multiplier = Math.max(1, Math.floor((100 * TWO_52 - h) / (TWO_52 - h)) / 100);
   return multiplier >= targetMultiplier;
 }
