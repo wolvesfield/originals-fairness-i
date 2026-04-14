@@ -98,6 +98,20 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Global cache for ultra-fast repetitive synchronous float generation
+let _cachedServerSeed: string | null = null;
+let _hmacInstance: ReturnType<typeof CryptoJS.algo.HMAC.create> | null = null;
+
+function _getHmac(serverSeed: string) {
+  if (serverSeed !== _cachedServerSeed || !_hmacInstance) {
+    _cachedServerSeed = serverSeed;
+    _hmacInstance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    _hmacInstance.reset();
+  }
+  return _hmacInstance;
+}
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  */
@@ -118,10 +132,16 @@ function hashToFloat(hash: string): number {
 
 /**
  * Generate Nth deterministic float for a given round.
+ * Optimized with HMAC instance caching and direct bitwise extraction.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  const hmac = _getHmac(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  // Extract first 32 bits directly from words array
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,9 +237,12 @@ function validateCrashState(
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = _getHmac(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize();
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  // Extract 52 bits: 32 from words[0] and top 20 from words[1]
+  const h = (hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
