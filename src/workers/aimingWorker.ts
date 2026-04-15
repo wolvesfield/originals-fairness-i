@@ -119,9 +119,20 @@ function hashToFloat(hash: string): number {
 /**
  * Generate Nth deterministic float for a given round.
  */
+let cachedFloatHmac: any = null;
+let cachedFloatSeed: string = '';
+
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  if (cachedFloatSeed !== serverSeed || !cachedFloatHmac) {
+    cachedFloatHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    cachedFloatSeed = serverSeed;
+  }
+
+  cachedFloatHmac.reset();
+  cachedFloatHmac.update(`${clientSeed}:${nonce}:${cursor}`);
+  const hash = cachedFloatHmac.finalize();
+
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -212,14 +223,23 @@ function validateKenoState(
 // Crash — industry standard (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
+let cachedCrashHmac: any = null;
+let cachedCrashSeed: string = '';
+
 function validateCrashState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
-  const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  if (cachedCrashSeed !== serverSeed || !cachedCrashHmac) {
+    cachedCrashHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    cachedCrashSeed = serverSeed;
+  }
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  cachedCrashHmac.reset();
+  cachedCrashHmac.update(`${clientSeed}:${nonce}`);
+  const hash = cachedCrashHmac.finalize();
+
+  const h = (hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;

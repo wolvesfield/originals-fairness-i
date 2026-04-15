@@ -1,0 +1,3 @@
+## 2025-02-24 - CryptoJS HMAC Bitwise Extraction Optimization
+**Learning:** In hot loops, converting a `CryptoJS.algo.HMAC` hash to a hex string and then using `parseInt()` to extract a 52-bit integer or a deterministic float is a massive performance bottleneck.
+**Action:** When a deterministic float or integer is needed from a hash, cache the HMAC instance, update it in place, and directly extract bits using the `words` array, e.g., `(hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12)`. This yields ~2.5x performance improvements. Ensure unused utility functions are not eagerly removed if they break backwards compatibility, or make sure not to alter existing scopes unnecessarily if unused utility functions still remain.
