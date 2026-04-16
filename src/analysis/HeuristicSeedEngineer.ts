@@ -60,9 +60,16 @@ export class HeuristicSeedEngineer {
         for (const anchor of anchors) {
             const generated = generateMinePositions(candidateSeed, clientSeed, anchor.nonce, mineCount, totalCells);
             // Count exact position overlaps
-            for (const m of anchor.mines) {
-                if (generated.includes(m)) {
-                    totalMinesMatched++;
+            // Performance: Manual inner loop with early break outperforms .includes() for small arrays
+            const ancLen = anchor.mines.length;
+            const genLen = generated.length;
+            for (let j = 0; j < ancLen; j++) {
+                const m = anchor.mines[j];
+                for (let k = 0; k < genLen; k++) {
+                    if (generated[k] === m) {
+                        totalMinesMatched++;
+                        break;
+                    }
                 }
             }
         }
