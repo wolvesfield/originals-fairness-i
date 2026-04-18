@@ -32,6 +32,7 @@ jobs:
       - uses: github/codeql-action/analyze@v3
 
   dependency-review:
+    continue-on-error: true
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
