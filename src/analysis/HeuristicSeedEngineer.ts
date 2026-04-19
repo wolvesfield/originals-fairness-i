@@ -5,6 +5,11 @@ export interface AnchorRound {
     mines: number[];
 }
 
+interface ScoringAnchor {
+    nonce: number;
+    mines: Set<number>;
+}
+
 export interface HeuristicResult {
     bestSeed: string;
     matchAccuracy: number; // 0.0 to 1.0
@@ -50,7 +55,7 @@ export class HeuristicSeedEngineer {
     private scoreSeed(
         candidateSeed: string,
         clientSeed: string,
-        anchors: AnchorRound[],
+        anchors: ScoringAnchor[],
         mineCount: number,
         totalCells: number
     ): number {
@@ -60,8 +65,8 @@ export class HeuristicSeedEngineer {
         for (const anchor of anchors) {
             const generated = generateMinePositions(candidateSeed, clientSeed, anchor.nonce, mineCount, totalCells);
             // Count exact position overlaps
-            for (const m of anchor.mines) {
-                if (generated.includes(m)) {
+            for (const g of generated) {
+                if (anchor.mines.has(g)) {
                     totalMinesMatched++;
                 }
             }
@@ -82,8 +87,14 @@ export class HeuristicSeedEngineer {
     ): Promise<HeuristicResult> {
         return new Promise((resolve) => {
             const startTime = performance.now();
+
+            const scoringAnchors: ScoringAnchor[] = anchors.map(a => ({
+                nonce: a.nonce,
+                mines: new Set(a.mines)
+            }));
+
             let bestSeed = this.generateRandomHex();
-            let bestScore = this.scoreSeed(bestSeed, clientSeed, anchors, mineCount, totalCells);
+            let bestScore = this.scoreSeed(bestSeed, clientSeed, scoringAnchors, mineCount, totalCells);
             let generation = 0;
 
             const runBatch = () => {
@@ -94,7 +105,7 @@ export class HeuristicSeedEngineer {
 
                     // Create a child seed with minute mutations
                     const childSeed = this.mutateSeed(bestSeed, 0.03); // 3% mutation
-                    const childScore = this.scoreSeed(childSeed, clientSeed, anchors, mineCount, totalCells);
+                    const childScore = this.scoreSeed(childSeed, clientSeed, scoringAnchors, mineCount, totalCells);
 
                     // If child fits the historical anchor data better, it becomes the new parent
                     if (childScore > bestScore) {
