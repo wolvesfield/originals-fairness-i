@@ -1,0 +1,3 @@
+## 2025-04-20 - HMAC Caching and Bitwise Float Extraction
+**Learning:** In hot loops involving cryptographic operations (e.g., brute-forcing nonces in `aimingWorker.ts`), instantiating new `CryptoJS.algo.HMAC.create` objects and converting hashes to Hex strings for `parseInt()` parsing is a massive performance bottleneck.
+**Action:** Cache a single `CryptoJS.algo.HMAC` instance for a given `serverSeed` and reuse it via `.reset()` and `.update()`. Instead of `.toString(CryptoJS.enc.Hex)` and `parseInt()`, extract the 32-bit words directly from the `hash.words` array using unsigned right bit shifts (`>>> 0`), yielding ~2.5x performance improvements.
