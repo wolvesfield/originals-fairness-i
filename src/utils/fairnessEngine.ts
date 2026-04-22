@@ -29,9 +29,37 @@ export function hashToFloat(hash: string): number {
 /**
  * Convenience: generate the Nth deterministic float for a given round.
  */
+// Cache HMAC instances to avoid expensive instantiation and garbage collection in hot loops
+const hmacCache = new Map<string, any>()
+
+function getHmacInstance(serverSeed: string) {
+  let hmac = hmacCache.get(serverSeed)
+  if (!hmac) {
+    // Clear cache to prevent memory leaks if it grows too large (simple LRU-ish bound)
+    if (hmacCache.size > 10) hmacCache.clear()
+    hmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed)
+    hmacCache.set(serverSeed, hmac)
+  } else {
+    hmac.reset()
+  }
+  return hmac
+}
+
+/**
+ * Convenience: generate the Nth deterministic float for a given round.
+ * Optimized with HMAC instance caching and direct bitwise math.
+ */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const hmac = getHmacInstance(serverSeed)
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  hmac.update(message)
+  const hash = hmac.finalize()
+
+  // Extract 32-bit float without string allocations
+  return (hash.words[0] >>> 0) / 4294967296
 }
 
 // ---------------------------------------------------------------------------
@@ -50,11 +78,15 @@ export function generateFloat(serverSeed: string, clientSeed: string, nonce: num
  *   5. Return max(1, result) to guarantee minimum 1.00x.
  */
 export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonce: number): number {
+  const hmac = getHmacInstance(serverSeed)
   const message = `${clientSeed}:${nonce}`
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+  hmac.update(message)
+  const hash = hmac.finalize()
 
-  // First 13 hex chars → integer (fits within JS safe integer range: 16^13 ≈ 4.5e15 < 2^53)
-  const h = parseInt(hash.slice(0, 13), 16)
+  // First 13 hex chars = 52 bits. Extract directly from 32-bit words array.
+  const w0 = hash.words[0] >>> 0
+  const w1 = hash.words[1] >>> 0
+  const h = w0 * 1048576 + (w1 >>> 12)
 
   // House edge: ~3 % of rounds instant-crash at 1.00x
   if (h % 33 === 0) {
