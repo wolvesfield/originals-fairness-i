@@ -1,0 +1,3 @@
+## 2025-02-18 - CryptoJS HMAC Performance Bottleneck
+**Learning:** Instantiating `CryptoJS.algo.HMAC.create` and performing hex-string parsing via `.toString(CryptoJS.enc.Hex)` combined with `parseInt(hex, 16)` inside tight loops (like pseudo-random generation for Monte Carlo simulations/Mines workers) acts as a severe CPU and GC bottleneck.
+**Action:** Always maintain an LRU cache of instantiated HMAC instances to reuse via `hmac.reset()` and `hmac.update()`. To convert the resulting hash directly into a 32-bit unsigned float without string operations, directly access the bitwise shift of the words array: `(hash.words[0] >>> 0) / 4294967296`.
