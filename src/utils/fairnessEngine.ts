@@ -5,20 +5,43 @@ import CryptoJS from 'crypto-js'
 // Produces a value in [0, 1) – never uses Math.random().
 // ---------------------------------------------------------------------------
 
+// Cache the HMAC instance to avoid recreation overhead in hot loops.
+let hmacInstance: CryptoJS.lib.Hasher | null = null;
+let currentHmacKey = '';
+
+/**
+ * Ensures a ready HMAC instance for the given serverSeed.
+ */
+function getHmacInstance(serverSeed: string): CryptoJS.lib.Hasher {
+  if (currentHmacKey !== serverSeed || !hmacInstance) {
+    // Note: Do not parse serverSeed as Hex here to maintain deterministic sequence compatibility.
+    hmacInstance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    currentHmacKey = serverSeed;
+  } else {
+    hmacInstance.reset();
+  }
+  return hmacInstance;
+}
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  * Returns the full hex digest (64 hex chars / 256 bits).
+ * Kept for backward compatibility and tests.
  */
 export function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): string {
   const message = platform === 'roobet'
     ? `${clientSeed}-${nonce}-${cursor}`
     : `${clientSeed}:${nonce}:${cursor}`
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+
+  const hmac = getHmacInstance(serverSeed);
+  hmac.update(message);
+  return hmac.finalize().toString(CryptoJS.enc.Hex);
 }
 
 /**
  * Convert the first 4 bytes (8 hex chars) of a hex hash to a float in [0, 1).
  * int(first_8_hex) / 2^32
+ * Kept for backward compatibility and tests.
  */
 export function hashToFloat(hash: string): number {
   const slice = hash.slice(0, 8)
@@ -28,10 +51,19 @@ export function hashToFloat(hash: string): number {
 
 /**
  * Convenience: generate the Nth deterministic float for a given round.
+ * Optimized: Extracts float directly from bitwise operations on hash words, avoiding hex string conversion.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  const hmac = getHmacInstance(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  // Extract first 32-bit word using bitwise shift and divide by 2^32
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,20 +80,26 @@ export function generateFloat(serverSeed: string, clientSeed: string, nonce: num
  *   3. if h % 33 === 0 → result = 1  (the "instant crash" / house edge).
  *   4. Otherwise:  result = floor( (100 * 2^52 - h) / (2^52 - h) ) / 100
  *   5. Return max(1, result) to guarantee minimum 1.00x.
+ *
+ * Optimized: Uses bitwise extraction from HMAC words instead of string manipulation.
  */
 export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonce: number): number {
   const message = `${clientSeed}:${nonce}`
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+  const hmac = getHmacInstance(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize();
 
-  // First 13 hex chars → integer (fits within JS safe integer range: 16^13 ≈ 4.5e15 < 2^53)
-  const h = parseInt(hash.slice(0, 13), 16)
+  // First 13 hex chars = 52 bits. Extract directly from the first two 32-bit words.
+  // words[0] has 32 bits. words[1] has the next 32 bits. We need 20 bits from words[1].
+  // 1048576 = 2^20
+  const h = (hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12);
 
   // House edge: ~3 % of rounds instant-crash at 1.00x
   if (h % 33 === 0) {
     return 1
   }
 
-  const TWO_52 = Math.pow(2, 52)
+  const TWO_52 = 4503599627370496; // 2^52
   const result = Math.floor((100 * TWO_52 - h) / (TWO_52 - h)) / 100
 
   return Math.max(1, result)

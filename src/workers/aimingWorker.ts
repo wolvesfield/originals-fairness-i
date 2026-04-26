@@ -98,30 +98,31 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
+let hmacInstance: CryptoJS.lib.Hasher | null = null;
+let currentHmacKey = '';
 
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
+function getHmacInstance(serverSeed: string): CryptoJS.lib.Hasher {
+  if (currentHmacKey !== serverSeed || !hmacInstance) {
+    hmacInstance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    currentHmacKey = serverSeed;
+  } else {
+    hmacInstance.reset();
+  }
+  return hmacInstance;
 }
 
 /**
  * Generate Nth deterministic float for a given round.
+ * Optimized: Extracts float directly from bitwise operations on hash words.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  const hmac = getHmacInstance(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  // Extract first 32-bit word using bitwise shift and divide by 2^32
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,14 +218,18 @@ function validateCrashState(
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = getHmacInstance(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize();
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  // First 13 hex chars = 52 bits. Extract directly from the first two 32-bit words.
+  // 1048576 = 2^20
+  const h = (hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
 
-  const TWO_52 = Math.pow(2, 52);
+  const TWO_52 = 4503599627370496; // 2^52
   const multiplier = Math.max(1, Math.floor((100 * TWO_52 - h) / (TWO_52 - h)) / 100);
   return multiplier >= targetMultiplier;
 }
