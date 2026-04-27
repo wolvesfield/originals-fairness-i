@@ -1,0 +1,52 @@
+--- src/utils/fairnessEngine.ts
++++ src/utils/fairnessEngine.ts
+@@ -5,14 +5,16 @@
+ // Produces a value in [0, 1) – never uses Math.random().
+ // ---------------------------------------------------------------------------
+
+-const cachedHmacs = new Map<string, any>()
++// Single-value cache to prevent memory leaks while optimizing hot loops
++let lastSeed: string | null = null
++let lastHmac: any = null
+
+ function getCachedHmac(serverSeed: string) {
+-  let hmac = cachedHmacs.get(serverSeed)
+-  if (!hmac) {
+-    hmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed)
+-    cachedHmacs.set(serverSeed, hmac)
+-  }
+-  return hmac
++  if (lastSeed !== serverSeed) {
++    lastHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed)
++    lastSeed = serverSeed
++  }
++  return lastHmac
+ }
+
+ /**
+--- src/workers/aimingWorker.ts
++++ src/workers/aimingWorker.ts
+@@ -98,14 +98,16 @@
+ // Core crypto — matches fairnessEngine.ts exactly
+ // ─────────────────────────────────────────────────────────────────────────────
+
+-const cachedHmacs = new Map<string, any>();
++// Single-value cache to prevent memory leaks while optimizing hot loops
++let lastSeed: string | null = null;
++let lastHmac: any = null;
+
+ function getCachedHmac(serverSeed: string) {
+-  let hmac = cachedHmacs.get(serverSeed);
+-  if (!hmac) {
+-    hmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+-    cachedHmacs.set(serverSeed, hmac);
+-  }
+-  return hmac;
++  if (lastSeed !== serverSeed) {
++    lastHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
++    lastSeed = serverSeed;
++  }
++  return lastHmac;
+ }
+
+ /**
