@@ -1,24 +1,10 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "target": "ES6",
+    "module": "CommonJS",
+    "moduleResolution": "node",
     "esModuleInterop": true,
     "strict": true,
-    "strictNullChecks": true,
-    "types": [
-      "node",
-      "better-sqlite3"
-    ],
-    "skipLibCheck": true,
-    "noEmit": true,
-    "resolveJsonModule": true
-  },
-  "include": [
-    "../scripts/**/*.ts",
-    "../src/db/**/*.ts",
-    "../src/utils/**/*.ts",
-    "../src/analysis/**/*.ts",
-    "../src/lib/types.ts"
-  ]
+    "skipLibCheck": true
+  }
 }

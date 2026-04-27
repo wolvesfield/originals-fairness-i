@@ -5,11 +5,15 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
-import { GridFour, NumberSquareEight, TrendUp, ListChecks, Plugs } from '@phosphor-icons/react'
+import { GridFour, NumberSquareEight, TrendUp, ListChecks, Plugs, Target, DiceThree, Triangle, Bird } from '@phosphor-icons/react'
 import type { Platform, GameType, VerificationResult } from '@/lib/types'
 import ConfigPanel from '@/components/ConfigPanel'
 import ServerSeedReveal from '@/components/ServerSeedReveal'
 import MinesGame from '@/components/MinesGame'
+import KenoGame from '@/components/KenoGame'
+import DiceGame from '@/components/DiceGame'
+import PlinkoGame from '@/components/PlinkoGame'
+import ChickenGame from '@/components/ChickenGame'
 import StakeMyBets from '@/components/StakeMyBets'
 import SeedHistory from '@/components/SeedHistory'
 import ApiConnections from '@/components/ApiConnections'
@@ -25,7 +29,7 @@ import { generateMinePositions } from '@/utils/fairnessEngine'
 import { getGameResults } from '@/db/browserDb'
 import { addSeedHistoryEntry } from '@/db/browserDb'
 
-type AppTab = 'mines' | 'apex' | 'history'
+type AppTab = 'mines' | 'keno' | 'dice' | 'plinko' | 'chicken' | 'apex' | 'history'
 
 interface FuturePrediction {
   nonce: number
@@ -354,16 +358,32 @@ function App() {
 
         <Card className="p-6">
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as AppTab)}>
-            <TabsList className="grid w-full grid-cols-6">
-              <TabsTrigger value="mines" className="gap-1.5 text-xs sm:text-sm">
+            <TabsList className="flex flex-wrap h-auto w-full gap-2 p-2 justify-center">
+              <TabsTrigger value="mines" className="gap-1.5 min-w-[100px] text-xs sm:text-sm">
                 <GridFour size={18} />
                 Mines
               </TabsTrigger>
-              <TabsTrigger value="apex" className="gap-1.5 text-xs sm:text-sm">
+              <TabsTrigger value="keno" className="gap-1.5 min-w-[100px] text-xs sm:text-sm shadow-emerald-500/20 data-[state=active]:text-emerald-400">
+                <Target size={18} />
+                Keno
+              </TabsTrigger>
+              <TabsTrigger value="dice" className="gap-1.5 min-w-[100px] text-xs sm:text-sm shadow-emerald-500/20 data-[state=active]:text-emerald-400">
+                <DiceThree size={18} />
+                Dice
+              </TabsTrigger>
+              <TabsTrigger value="plinko" className="gap-1.5 min-w-[100px] text-xs sm:text-sm shadow-emerald-500/20 data-[state=active]:text-emerald-400">
+                <Triangle size={18} />
+                Plinko
+              </TabsTrigger>
+              <TabsTrigger value="chicken" className="gap-1.5 min-w-[100px] text-xs sm:text-sm shadow-emerald-500/20 data-[state=active]:text-emerald-400">
+                <Bird size={18} />
+                Chicken
+              </TabsTrigger>
+              <TabsTrigger value="apex" className="gap-1.5 min-w-[100px] text-xs sm:text-sm">
                 <TrendUp size={18} />
                 Apex Scanner
               </TabsTrigger>
-              <TabsTrigger value="history" className="gap-1.5 text-xs sm:text-sm">
+              <TabsTrigger value="history" className="gap-1.5 min-w-[100px] text-xs sm:text-sm">
                 <ListChecks size={18} />
                 History & Stats
               </TabsTrigger>
@@ -381,6 +401,22 @@ function App() {
                 analysisResult={analysisResult}
                 onTargetTilesChange={setUserTargetTiles}
               />
+            </TabsContent>
+
+            <TabsContent value="keno" className="mt-6">
+              <KenoGame />
+            </TabsContent>
+
+            <TabsContent value="dice" className="mt-6">
+              <DiceGame />
+            </TabsContent>
+
+            <TabsContent value="plinko" className="mt-6">
+              <PlinkoGame />
+            </TabsContent>
+
+            <TabsContent value="chicken" className="mt-6">
+              <ChickenGame />
             </TabsContent>
 
             <TabsContent value="apex" className="mt-6">

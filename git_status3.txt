@@ -1,0 +1,21 @@
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes to be committed:
+  (use "git restore --staged <file>..." to unstage)
+	new file:   scripts/quantum_analysis.ts
+	new file:   src/analysis/betsMarch03.json
+	modified:   src/controllers/MasterController.ts
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	chicken.png
+	chicken1.png
+	git_status2.txt
+	git_status3.txt
+	keno 1.png
+	keno.png
+	mc_diff.txt
+	runlist.txt
+	runlist2.txt
+

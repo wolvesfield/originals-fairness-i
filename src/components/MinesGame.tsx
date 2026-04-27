@@ -7,6 +7,8 @@ import { toast } from 'sonner'
 import { generateMinePositions } from '@/utils/fairnessEngine'
 import { ClusterVarianceAnalyzer } from '@/analysis/ClusterVarianceAnalyzer'
 import type { GameRoundResult } from '@/controllers/MasterController'
+import type { ClosestToWinRecommendation } from '@/analysis/ClosestToWinEngine'
+import { Sparkle } from '@phosphor-icons/react'
 
 interface MinesGameProps {
   platform: Platform
@@ -43,6 +45,7 @@ export default function MinesGame({
   const [markovRiskTiles, setMarkovRiskTiles] = useState<number[]>([])
   const [isPainting, setIsPainting] = useState(false)
   const [isRunningProbability, setIsRunningProbability] = useState(false)
+  const [closestStrategy, setClosestStrategy] = useState<ClosestToWinRecommendation | null>(null)
 
   const totalCells = gridSize * gridSize
   const cva = useMemo(() => new ClusterVarianceAnalyzer(), [])
@@ -57,6 +60,7 @@ export default function MinesGame({
     setSafeClusterTiles([])
     setMarkovHeatMap([])
     setMarkovRiskTiles([])
+    setClosestStrategy(null)
     // Don't reset target tiles when inputs change — user might want to keep them
   }, [serverSeedHash, clientSeed, nonce, mineCount])
 
@@ -132,6 +136,12 @@ export default function MinesGame({
         setMarkovHeatMap([])
         setMarkovRiskTiles([])
       }
+
+      if (analysisResult.closestToWinRecommendation) {
+        setClosestStrategy(analysisResult.closestToWinRecommendation)
+      } else {
+        setClosestStrategy(null)
+      }
     }
   }, [analysisResult, nonce, totalCells, mineCount])
 
@@ -172,7 +182,8 @@ export default function MinesGame({
     setVerifiedMines([])
     setIsRunningProbability(true)
 
-    const iterations = 3
+    // Increased simulation depth for higher accuracy
+    const iterations = 50
     const combinedMap = new Array(totalCells).fill(0)
     let pass = 0
 
@@ -213,6 +224,32 @@ export default function MinesGame({
     runNextPass()
   }
 
+  const applyClosestStrategy = () => {
+    if (!closestStrategy) return
+    
+    // Choose the safest tile from each recommended cluster
+    const optimalPicks: number[] = []
+    
+    // Safety check - if we have fewer clusters than requested picks, just use what we have
+    const clustersToUse = Math.min(closestStrategy.safeTilesPickCount, closestStrategy.recommendedClusters.length)
+
+    for (let i = 0; i < clustersToUse; i++) {
+        const cluster = closestStrategy.recommendedClusters[i]
+        if (cluster && cluster.length > 0) {
+            // Pick safest (first element if sorted, or just first element for now)
+            optimalPicks.push(cluster[0]) 
+        }
+    }
+    
+    setTargetTiles(optimalPicks)
+    
+    if (closestStrategy.optimalClientSeed) {
+        // Find the "clientSeed" input in the ConfigPanel via DOM, 
+        // since state is lifted up, but this is a nice quick UX win
+        toast.success(`Strategy Applied: Target tiles set to independent clusters. Please update your client seed to: ${closestStrategy.optimalClientSeed}`)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-md border border-border p-3 text-sm">
@@ -221,6 +258,34 @@ export default function MinesGame({
           {revealedServerSeed ? 'Deterministic verification available' : 'Pre-reveal (probability only)'}
         </p>
       </div>
+
+      {!revealedServerSeed && closestStrategy && (
+        <div className="rounded-md border border-fuchsia-500/50 bg-fuchsia-900/10 p-4 shadow-[0_0_15px_rgba(217,70,239,0.15)]">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkle className="text-fuchsia-400" weight="fill" size={20} />
+            <h3 className="font-bold text-fuchsia-400 text-lg">Closest to Win Strategy</h3>
+          </div>
+          <p className="text-sm text-slate-300 mb-3">{closestStrategy.description}</p>
+          
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div className="bg-slate-900/50 p-2 rounded border border-slate-700">
+              <span className="text-xs text-slate-400 block uppercase tracking-wider">Bet Size (Bankroll)</span>
+              <span className="font-mono text-emerald-400 font-bold">{closestStrategy.betSizeAllocationPercent.toFixed(2)}%</span>
+            </div>
+            <div className="bg-slate-900/50 p-2 rounded border border-slate-700">
+              <span className="text-xs text-slate-400 block uppercase tracking-wider">Optimal Client Seed</span>
+              <span className="font-mono text-yellow-400 font-bold tracking-tight">{closestStrategy.optimalClientSeed.substring(0, 10)}...</span>
+            </div>
+          </div>
+          
+          <Button 
+            onClick={applyClosestStrategy} 
+            className="w-full bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-semibold transition-colors"
+          >
+            Apply Geometric Strategy to Grid
+          </Button>
+        </div>
+      )}
 
       <div className="flex items-center gap-4">
         {platform === 'roobet' && (
@@ -320,8 +385,10 @@ export default function MinesGame({
                 displayText = 'SAFE'
               }
             } else if (hasProb) {
-              const minePercent = (prob * 100).toFixed(1)
-              displayText = `${minePercent}%`
+              // Convert mine probability to diamond (safe) probability
+              const safeProb = 1 - prob;
+              const safePercent = (safeProb * 100).toFixed(1)
+              displayText = `${safePercent}%`
 
               if (isTarget) {
                 // User-painted target tile
@@ -348,13 +415,13 @@ export default function MinesGame({
                 bg = 'bg-blue-600/60 border-blue-400'
                 textColor = 'text-blue-100'
                 icon = '🛡️'
-                label = 'ZONE'
+                label = 'SAFE'
                 glow = 'shadow-[0_0_12px_rgba(59,130,246,0.6)]'
               } else if (isSafest) {
                 bg = 'bg-emerald-700/50 border-emerald-500/40'
                 textColor = 'text-emerald-200'
-                icon = '✅'
-                label = 'SAFER'
+                icon = '💎'
+                label = 'DIAMOND'
                 glow = 'shadow-[0_0_8px_rgba(16,185,129,0.3)]'
               } else {
                 bg = 'bg-slate-800 border-slate-600'
@@ -417,12 +484,12 @@ export default function MinesGame({
             )}
             {safestTiles.length > 0 && (
               <span className="flex items-center gap-1">
-                <span className="w-3 h-3 rounded bg-emerald-700/50 border border-emerald-500/40 inline-block" /> ✅ Safer Tiles ({safestTiles.length})
+                <span className="w-3 h-3 rounded bg-emerald-700/50 border border-emerald-500/40 inline-block" /> 💎 Diamonds ({safestTiles.length})
               </span>
             )}
             {safeClusterTiles.length > 0 && (
               <span className="flex items-center gap-1">
-                <span className="w-3 h-3 rounded bg-blue-600/60 border border-blue-400 inline-block" /> 🛡️ Golden Cluster ({safeClusterTiles.length})
+                <span className="w-3 h-3 rounded bg-blue-600/60 border border-blue-400 inline-block" /> 🛡️ Safe Cluster ({safeClusterTiles.length})
               </span>
             )}
             <span className="flex items-center gap-1">

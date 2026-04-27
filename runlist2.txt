@@ -1,0 +1,20 @@
+in_progress		Deploy to GitHub Pages	Deploy to GitHub Pages	main	workflow_dispatch	22747650679	1h1m0s	2026-03-06T03:25:21Z
+completed	cancelled	update	Deploy to GitHub Pages	main	push	22747637682	34s	2026-03-06T03:24:50Z
+completed	cancelled	fix: resolve false positive 'first row jackpot' overlay bug on Roobet…	Deploy to GitHub Pages	main	push	22731112764	7s	2026-03-05T18:36:28Z
+completed	success	Deploy to GitHub Pages	Deploy to GitHub Pages	main	workflow_dispatch	22731110515	1m15s	2026-03-05T18:36:25Z
+completed	cancelled	Deploy to GitHub Pages	Deploy to GitHub Pages	main	workflow_dispatch	22731092259	36s	2026-03-05T18:35:59Z
+completed	success	Deploy to GitHub Pages	Deploy to GitHub Pages	main	workflow_dispatch	22726241581	1m14s	2026-03-05T15:56:25Z
+completed	success	fix(ui): explicitly route platform context array strictly to underlyi…	Deploy to GitHub Pages	main	push	22723029158	1m2s	2026-03-05T14:41:09Z
+completed	success	fix(crypto): auto-infer Roobet HMAC PRNG from totalCells strictly ove…	Deploy to GitHub Pages	main	push	22722417125	1m14s	2026-03-05T14:26:17Z
+completed	success	fix(IntegrityAuditor): prevent querying Nitrxgen with SHA-256 hashes …	Deploy to GitHub Pages	main	push	22716466781	1m23s	2026-03-05T11:47:37Z
+completed	success	chore: fix deployment lint error	Deploy to GitHub Pages	main	push	22704805780	1m25s	2026-03-05T06:06:32Z
+completed	failure	refactor(ui): Remove Keno, Crash, and Batch tabs to strictly focus on…	Deploy to GitHub Pages	main	push	22704283072	43s	2026-03-05T05:47:00Z
+completed	failure	test: Fix hardcoded probabilistic confidence assert in fullRegression	Deploy to GitHub Pages	main	push	22704144227	45s	2026-03-05T05:41:43Z
+completed	failure	test: Add Live Hunt script for Entropy Vulnerability scanning	Deploy to GitHub Pages	main	push	22702734345	32s	2026-03-05T04:45:07Z
+completed	failure	chore: remove vite_out	Deploy to GitHub Pages	main	push	22701342103	38s	2026-03-05T03:48:22Z
+completed	success	⚡ Optimize SeedInfluenceAnalyzer JSON serialization loop (#27)	Deploy to GitHub Pages	main	push	22701287434	1m18s	2026-03-05T03:46:04Z
+completed	cancelled	🧹 [code health improvement] Replace console.log with a standard logge…	Deploy to GitHub Pages	main	push	22701284433	11s	2026-03-05T03:45:56Z
+completed	cancelled	🔒 Fix unsafe JSON parsing DoS vulnerability in seeds API (#22)	Deploy to GitHub Pages	main	push	22701283168	4s	2026-03-05T03:45:53Z
+completed	cancelled	🧹 [code health] Add error logging to useKV hook (#21)	Deploy to GitHub Pages	main	push	22701281891	5s	2026-03-05T03:45:49Z
+completed	cancelled	Restrict permissive CORS policy (#20)	Deploy to GitHub Pages	main	push	22701280864	4s	2026-03-05T03:45:46Z
+completed	cancelled	⚡ Optimize memory usage in entropy_auditor.py (#19)	Deploy to GitHub Pages	main	push	22701279452	5s	2026-03-05T03:45:42Z

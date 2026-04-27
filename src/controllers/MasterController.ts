@@ -4,6 +4,7 @@ import { AllocationEngine } from '../analysis/AllocationEngine';
 import { VolatilityHedge } from '../analysis/VolatilityHedge';
 import { TelemetryDispatcher } from '../telemetry/TelemetryDispatcher';
 import { MarkovChainAnalyzer } from '../analysis/MarkovChainAnalyzer';
+import { ClosestToWinEngine, ClosestToWinRecommendation } from '../analysis/ClosestToWinEngine';
 import { generateMinePositions, calculateCrashPoint, generateKenoNumbers } from '../utils/fairnessEngine';
 
 // Roobet mine configs per grid size
@@ -63,6 +64,7 @@ export interface GameRoundResult {
   modeResults?: AnalysisModeResult[];
   riskTiles?: number[];
   markovHeatMap?: number[];
+  closestToWinRecommendation?: ClosestToWinRecommendation;
 }
 
 export interface ApexGoldenPathOption {
@@ -88,6 +90,7 @@ export class MasterController {
   private allocation: AllocationEngine;
   private hedge: VolatilityHedge;
   private telemetry: TelemetryDispatcher;
+  private closestToWinEngine: ClosestToWinEngine;
 
   constructor() {
     this.auditor = new IntegrityAuditor();
@@ -95,6 +98,7 @@ export class MasterController {
     this.allocation = new AllocationEngine();
     this.hedge = new VolatilityHedge();
     this.telemetry = new TelemetryDispatcher();
+    this.closestToWinEngine = new ClosestToWinEngine();
   }
 
   /**
@@ -284,6 +288,16 @@ export class MasterController {
     const safeCount = totalCells - mineCount;
     const safestTiles = sortedByRisk.slice(-safeCount).map(t => t.idx);
 
+    // Get the actionable closest to win recommendation
+    const closestToWinRec = this.closestToWinEngine.analyzeOptimalStrategy(
+      serverSeedOrHash,
+      nonce,
+      mineCount,
+      totalCells,
+      bankroll,
+      2.0 // Assuming standard target multiplier for Kelly for mines
+    );
+
     // Run analysis modes for transparency reporting
     const modeResults = this.runMultiModeAnalysis(
       serverSeedOrHash, clientSeed, nonce, mineCount, totalCells, heatMap
@@ -317,7 +331,8 @@ export class MasterController {
       heatMap,
       markovHeatMap,
       modeResults,
-      riskTiles // Expose risk tiles matching mine count for the UI
+      riskTiles, // Expose risk tiles matching mine count for the UI
+      closestToWinRecommendation: closestToWinRec
     } as GameRoundResult;
   }
 
