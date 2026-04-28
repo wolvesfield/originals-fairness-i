@@ -98,12 +98,27 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
+let lastServerSeed: string | null = null;
+let cachedHmac: any = null;
+
+function getHmacInstance(serverSeed: string) {
+  if (serverSeed !== lastServerSeed || !cachedHmac) {
+    lastServerSeed = serverSeed;
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    cachedHmac.reset();
+  }
+  return cachedHmac;
+}
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  */
 function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
   const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = getHmacInstance(serverSeed);
+  hmac.update(message);
+  return hmac.finalize().toString(CryptoJS.enc.Hex);
 }
 
 /**
@@ -120,8 +135,12 @@ function hashToFloat(hash: string): number {
  * Generate Nth deterministic float for a given round.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  const hmac = getHmacInstance(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,9 +236,13 @@ function validateCrashState(
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = getHmacInstance(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize();
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  const word0 = hash.words[0] >>> 0;
+  const word1 = hash.words[1] >>> 12; // take top 20 bits (32 - 12)
+  const h = word0 * 1048576 + word1; // 1048576 = 2^20
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
