@@ -5,6 +5,10 @@ import CryptoJS from 'crypto-js'
 // Produces a value in [0, 1) – never uses Math.random().
 // ---------------------------------------------------------------------------
 
+// Single-value cache for HMAC instance to prevent memory leaks and optimize hot paths
+let lastSeed: string | null = null;
+let hmacCache: any = null;
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  * Returns the full hex digest (64 hex chars / 256 bits).
@@ -13,7 +17,16 @@ export function hmacSha256(serverSeed: string, clientSeed: string, nonce: number
   const message = platform === 'roobet'
     ? `${clientSeed}-${nonce}-${cursor}`
     : `${clientSeed}:${nonce}:${cursor}`
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+
+  if (serverSeed !== lastSeed || !hmacCache) {
+    lastSeed = serverSeed;
+    hmacCache = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    hmacCache.reset();
+  }
+
+  hmacCache.update(message);
+  return hmacCache.finalize().toString(CryptoJS.enc.Hex);
 }
 
 /**
@@ -30,8 +43,23 @@ export function hashToFloat(hash: string): number {
  * Convenience: generate the Nth deterministic float for a given round.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  if (serverSeed !== lastSeed || !hmacCache) {
+    lastSeed = serverSeed;
+    hmacCache = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    hmacCache.reset();
+  }
+
+  hmacCache.update(message);
+  const hash = hmacCache.finalize();
+
+  // Convert first 4 bytes to float in [0, 1) using bitwise operations
+  // (hash.words[0] >>> 0) ensures an unsigned 32-bit integer, avoiding parseInt() and slice() overhead
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ---------------------------------------------------------------------------
