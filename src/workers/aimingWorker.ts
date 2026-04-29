@@ -98,12 +98,25 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Single-value cache for HMAC instance to prevent memory leaks and optimize hot paths
+let lastSeed: string | null = null;
+let hmacCache: any = null;
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  */
 function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
   const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+
+  if (serverSeed !== lastSeed || !hmacCache) {
+    lastSeed = serverSeed;
+    hmacCache = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    hmacCache.reset();
+  }
+
+  hmacCache.update(message);
+  return hmacCache.finalize().toString(CryptoJS.enc.Hex);
 }
 
 /**
@@ -120,8 +133,20 @@ function hashToFloat(hash: string): number {
  * Generate Nth deterministic float for a given round.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+
+  if (serverSeed !== lastSeed || !hmacCache) {
+    lastSeed = serverSeed;
+    hmacCache = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    hmacCache.reset();
+  }
+
+  hmacCache.update(message);
+  const hash = hmacCache.finalize();
+
+  // Convert first 4 bytes to float in [0, 1) using bitwise operations
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
