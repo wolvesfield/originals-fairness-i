@@ -26,12 +26,35 @@ export function hashToFloat(hash: string): number {
   return int / 4294967296                   // 0 .. < 1
 }
 
+// ⚡ Bolt: Cache HMAC instance to prevent object allocation in hot loops
+let lastSeed: string | null = null
+let lastHmac: any = null
+
+function getHmac(serverSeed: string) {
+  if (serverSeed !== lastSeed || !lastHmac) {
+    lastSeed = serverSeed
+    lastHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed)
+  } else {
+    lastHmac.reset()
+  }
+  return lastHmac
+}
+
 /**
  * Convenience: generate the Nth deterministic float for a given round.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  // ⚡ Bolt: Use cached HMAC and avoid expensive hex string conversion
+  const hmac = getHmac(serverSeed)
+  hmac.update(message)
+  const hash = hmac.finalize()
+
+  // Extract first 32 bits and divide by 2^32
+  return (hash.words[0] >>> 0) / 4294967296
 }
 
 // ---------------------------------------------------------------------------
@@ -51,10 +74,14 @@ export function generateFloat(serverSeed: string, clientSeed: string, nonce: num
  */
 export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonce: number): number {
   const message = `${clientSeed}:${nonce}`
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+  // ⚡ Bolt: Use cached HMAC and avoid expensive hex string conversion
+  const hmac = getHmac(serverSeed)
+  hmac.update(message)
+  const hash = hmac.finalize()
 
-  // First 13 hex chars → integer (fits within JS safe integer range: 16^13 ≈ 4.5e15 < 2^53)
-  const h = parseInt(hash.slice(0, 13), 16)
+  // ⚡ Bolt: Extract 52-bit integer for Crash algorithm directly using bitwise math
+  // (hash.words[0] >>> 0) gives first 32 bits, (hash.words[1] >>> 12) gives next 20 bits
+  const h = (hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12)
 
   // House edge: ~3 % of rounds instant-crash at 1.00x
   if (h % 33 === 0) {
