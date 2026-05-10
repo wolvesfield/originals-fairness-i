@@ -101,7 +101,7 @@ self.onmessage = (event: MessageEvent) => {
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
+export function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
   const message = `${clientSeed}:${nonce}:${cursor}`;
   return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
 }
@@ -110,18 +110,31 @@ function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, curso
  * Convert first 4 bytes (8 hex chars) to float in [0, 1).
  * int(first_8_hex) / 2^32
  */
-function hashToFloat(hash: string): number {
+export function hashToFloat(hash: string): number {
   const slice = hash.slice(0, 8);
   const int = parseInt(slice, 16);
   return int / 4294967296;
 }
 
+let hmacInstanceFloat: any = null;
+let lastSeedFloat: string = "";
+
 /**
  * Generate Nth deterministic float for a given round.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+
+  if (serverSeed !== lastSeedFloat || !hmacInstanceFloat) {
+    hmacInstanceFloat = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastSeedFloat = serverSeed;
+  } else {
+    hmacInstanceFloat.reset();
+  }
+
+  hmacInstanceFloat.update(message);
+  const hash = hmacInstanceFloat.finalize();
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -132,7 +145,7 @@ function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cu
  * Returns mineCount unique cell indices using Fisher-Yates shuffle.
  * Consumes one float per swap via incrementing cursor.
  */
-function generateMinePositions(
+export function generateMinePositions(
   serverSeed: string, clientSeed: string, nonce: number,
   mineCount: number, totalCells: number
 ): number[] {
@@ -212,19 +225,31 @@ function validateKenoState(
 // Crash — industry standard (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
+let hmacInstanceCrash: any = null;
+let lastSeedCrash: string = "";
+
 function validateCrashState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  if (serverSeed !== lastSeedCrash || !hmacInstanceCrash) {
+    hmacInstanceCrash = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastSeedCrash = serverSeed;
+  } else {
+    hmacInstanceCrash.reset();
+  }
+
+  hmacInstanceCrash.update(message);
+  const hash = hmacInstanceCrash.finalize();
+
+  const h = (hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
 
-  const TWO_52 = Math.pow(2, 52);
+  const TWO_52 = 4503599627370496; // Math.pow(2, 52)
   const multiplier = Math.max(1, Math.floor((100 * TWO_52 - h) / (TWO_52 - h)) / 100);
   return multiplier >= targetMultiplier;
 }
