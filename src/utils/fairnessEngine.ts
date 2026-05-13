@@ -5,6 +5,17 @@ import CryptoJS from 'crypto-js'
 // Produces a value in [0, 1) – never uses Math.random().
 // ---------------------------------------------------------------------------
 
+let _lastServerSeed: string | null = null;
+let _cachedHmac: any = null;
+
+function _getHmac(serverSeed: string) {
+  if (serverSeed !== _lastServerSeed) {
+    _cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    _lastServerSeed = serverSeed;
+  }
+  return _cachedHmac;
+}
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  * Returns the full hex digest (64 hex chars / 256 bits).
@@ -30,8 +41,16 @@ export function hashToFloat(hash: string): number {
  * Convenience: generate the Nth deterministic float for a given round.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const hmac = _getHmac(serverSeed);
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`;
+
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,11 +69,17 @@ export function generateFloat(serverSeed: string, clientSeed: string, nonce: num
  *   5. Return max(1, result) to guarantee minimum 1.00x.
  */
 export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonce: number): number {
-  const message = `${clientSeed}:${nonce}`
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+  const hmac = _getHmac(serverSeed);
+  const message = `${clientSeed}:${nonce}`;
 
-  // First 13 hex chars → integer (fits within JS safe integer range: 16^13 ≈ 4.5e15 < 2^53)
-  const h = parseInt(hash.slice(0, 13), 16)
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  // First 13 hex chars = 52 bits. Extract from first two 32-bit words:
+  // First word gives 8 hex chars (32 bits). Need 5 more hex chars (20 bits) from second word.
+  // We can do: (words[0] >>> 0) * 2^20 + (words[1] >>> 12)
+  const h = (hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12);
 
   // House edge: ~3 % of rounds instant-crash at 1.00x
   if (h % 33 === 0) {
