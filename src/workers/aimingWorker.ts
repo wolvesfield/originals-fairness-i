@@ -98,30 +98,34 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+let _lastServerSeed: string | null = null;
+let _cachedHmac: any = null;
+
+function _getHmac(serverSeed: string) {
+  if (serverSeed !== _lastServerSeed) {
+    _cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    _lastServerSeed = serverSeed;
+  }
+  return _cachedHmac;
 }
 
 /**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
+ * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
-}
+
 
 /**
  * Generate Nth deterministic float for a given round.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const hmac = _getHmac(serverSeed);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,10 +220,14 @@ function validateCrashState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
+  const hmac = _getHmac(serverSeed);
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  const h = (hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;

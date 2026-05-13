@@ -1,0 +1,3 @@
+## 2024-05-13 - [Optimize HMAC hashing hot paths]
+**Learning:** Instantiating new \`CryptoJS.HmacSHA256\` objects in hot loops (tens of thousands of times per second) is a major architectural bottleneck due to massive object allocation overhead. String allocations via \`.toString(CryptoJS.enc.Hex)\` and parsing via \`parseInt\` further slow down pseudo-random number generation.
+**Action:** Implement single-value caching via \`CryptoJS.algo.HMAC.create\` and reuse it by calling \`.reset()\` and \`.update()\`. Bypass string conversions by extracting 32-bit values directly from the \`hash.words\` array using bitwise shifts (e.g., \`(hash.words[0] >>> 0) / 4294967296\`). Apply this pattern to any CSPRNG loops across the codebase.
