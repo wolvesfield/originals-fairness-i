@@ -1,0 +1,3 @@
+## 2025-02-28 - Optimizing crypto-js HMAC instantiation and word extraction in tight loops
+**Learning:** Instantiating `CryptoJS.algo.HMAC.create` for every loop iteration, or using `.toString(CryptoJS.enc.Hex)` combined with `parseInt()`, causes significant garbage collection and execution overhead in highly intensive loops (e.g. brute-forcing seeds or nonces).
+**Action:** Always use a single-value cache for the HMAC instance based on the unchanging `serverSeed` using `.reset()` and `.update()`. Instead of hex string conversion for floats, use bitwise shifts directly on the words array (`(hashObj.words[0] >>> 0) / 4294967296`).

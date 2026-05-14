@@ -26,12 +26,27 @@ export function hashToFloat(hash: string): number {
   return int / 4294967296                   // 0 .. < 1
 }
 
+let lastSeed: string | null = null;
+let cachedHmac: any = null;
+
 /**
  * Convenience: generate the Nth deterministic float for a given round.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  if (serverSeed !== lastSeed || !cachedHmac) {
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastSeed = serverSeed;
+  }
+
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`;
+
+  cachedHmac.reset();
+  cachedHmac.update(message);
+  const hashObj = cachedHmac.finalize();
+
+  return (hashObj.words[0] >>> 0) / 4294967296;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,4 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.hmacSha256 = hmacSha256;
 exports.hashToFloat = hashToFloat;
@@ -9,7 +6,7 @@ exports.generateFloat = generateFloat;
 exports.calculateCrashPoint = calculateCrashPoint;
 exports.generateMinePositions = generateMinePositions;
 exports.generateKenoNumbers = generateKenoNumbers;
-var crypto_js_1 = __importDefault(require("crypto-js"));
+var crypto_js_1 = require("crypto-js");
 // ---------------------------------------------------------------------------
 // Core: Deterministic float from HMAC-SHA256
 // Produces a value in [0, 1) – never uses Math.random().
@@ -34,13 +31,24 @@ function hashToFloat(hash) {
     var int = parseInt(slice, 16); // 0 .. 0xFFFFFFFF
     return int / 4294967296; // 0 .. < 1
 }
+var lastSeed = null;
+var cachedHmac = null;
 /**
  * Convenience: generate the Nth deterministic float for a given round.
  */
 function generateFloat(serverSeed, clientSeed, nonce, cursor, platform) {
     if (platform === void 0) { platform = 'stake'; }
-    var hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform);
-    return hashToFloat(hash);
+    if (serverSeed !== lastSeed || !cachedHmac) {
+        cachedHmac = crypto_js_1.default.algo.HMAC.create(crypto_js_1.default.algo.SHA256, serverSeed);
+        lastSeed = serverSeed;
+    }
+    var message = platform === 'roobet'
+        ? "".concat(clientSeed, "-").concat(nonce, "-").concat(cursor)
+        : "".concat(clientSeed, ":").concat(nonce, ":").concat(cursor);
+    cachedHmac.reset();
+    cachedHmac.update(message);
+    var hashObj = cachedHmac.finalize();
+    return (hashObj.words[0] >>> 0) / 4294967296;
 }
 // ---------------------------------------------------------------------------
 // Crash – provably fair multiplier
