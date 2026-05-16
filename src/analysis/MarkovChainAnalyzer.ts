@@ -29,18 +29,23 @@ export class MarkovChainAnalyzer {
 
             // For each mine location in the current round, log where EVERY mine went in the next round
             // This builds a transitional heat weight
-            for (const originTile of currentRound) {
-                if (!this.transitionMatrix.has(originTile)) {
-                    this.transitionMatrix.set(originTile, new Map());
+            for (let j = 0; j < currentRound.length; j++) {
+                const originTile = currentRound[j];
+
+                let destinationMap = this.transitionMatrix.get(originTile);
+                if (destinationMap === undefined) {
+                    destinationMap = new Map();
+                    this.transitionMatrix.set(originTile, destinationMap);
                 }
 
-                const destinationMap = this.transitionMatrix.get(originTile)!;
-
                 // Track how often a general mine originates from here
-                this.frequencies.set(originTile, (this.frequencies.get(originTile) || 0) + 1);
+                const currentFreq = this.frequencies.get(originTile);
+                this.frequencies.set(originTile, (currentFreq === undefined ? 0 : currentFreq) + 1);
 
-                for (const destTile of nextRound) {
-                    destinationMap.set(destTile, (destinationMap.get(destTile) || 0) + 1);
+                for (let k = 0; k < nextRound.length; k++) {
+                    const destTile = nextRound[k];
+                    const currentDestCount = destinationMap.get(destTile);
+                    destinationMap.set(destTile, (currentDestCount === undefined ? 0 : currentDestCount) + 1);
                 }
             }
         }
