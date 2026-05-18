@@ -8,14 +8,14 @@
  * to shift to next.
  */
 export class MarkovChainAnalyzer {
-    private transitionMatrix: Map<number, Map<number, number>>;
-    private frequencies: Map<number, number>;
+    private transitionMatrix: Int32Array;
+    private frequencies: Int32Array;
     private gridSize: number;
 
     constructor(gridSize: number = 25) {
-        this.transitionMatrix = new Map();
-        this.frequencies = new Map();
         this.gridSize = gridSize;
+        this.transitionMatrix = new Int32Array(gridSize * gridSize);
+        this.frequencies = new Int32Array(gridSize);
     }
 
     /**
@@ -30,17 +30,12 @@ export class MarkovChainAnalyzer {
             // For each mine location in the current round, log where EVERY mine went in the next round
             // This builds a transitional heat weight
             for (const originTile of currentRound) {
-                if (!this.transitionMatrix.has(originTile)) {
-                    this.transitionMatrix.set(originTile, new Map());
-                }
-
-                const destinationMap = this.transitionMatrix.get(originTile)!;
-
                 // Track how often a general mine originates from here
-                this.frequencies.set(originTile, (this.frequencies.get(originTile) || 0) + 1);
+                this.frequencies[originTile]++;
 
+                const offset = originTile * this.gridSize;
                 for (const destTile of nextRound) {
-                    destinationMap.set(destTile, (destinationMap.get(destTile) || 0) + 1);
+                    this.transitionMatrix[offset + destTile]++;
                 }
             }
         }
@@ -54,14 +49,17 @@ export class MarkovChainAnalyzer {
         const predictionMap = new Array(this.gridSize).fill(0);
 
         for (const originTile of currentMinePositions) {
-            if (!this.transitionMatrix.has(originTile)) continue;
+            const totalTransitions = this.frequencies[originTile];
+            if (totalTransitions === 0) continue;
 
-            const destinationMap = this.transitionMatrix.get(originTile)!;
-            const totalTransitions = this.frequencies.get(originTile) || 1;
+            const offset = originTile * this.gridSize;
 
-            for (const [destTile, count] of destinationMap.entries()) {
-                const transitionProb = count / totalTransitions;
-                predictionMap[destTile] += transitionProb;
+            for (let destTile = 0; destTile < this.gridSize; destTile++) {
+                const count = this.transitionMatrix[offset + destTile];
+                if (count > 0) {
+                    const transitionProb = count / totalTransitions;
+                    predictionMap[destTile] += transitionProb;
+                }
             }
         }
 
