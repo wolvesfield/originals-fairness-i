@@ -98,12 +98,28 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Cache for HMAC instance to avoid recreation in hot loops
+let _lastSeed: string = '';
+let _hmacInstance: any = null;
+
+function _getHmacInstance(serverSeed: string) {
+  if (serverSeed !== _lastSeed || !_hmacInstance) {
+    _lastSeed = serverSeed;
+    _hmacInstance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    _hmacInstance.reset();
+  }
+  return _hmacInstance;
+}
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  */
 function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
   const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = _getHmacInstance(serverSeed);
+  hmac.update(message);
+  return hmac.finalize().toString(CryptoJS.enc.Hex);
 }
 
 /**
@@ -118,10 +134,18 @@ function hashToFloat(hash: string): number {
 
 /**
  * Generate Nth deterministic float for a given round.
+ * Optimized to extract the 32-bit word directly from the CryptoJS word array.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  const hmac = _getHmacInstance(serverSeed);
+  hmac.update(message);
+  const hashObj = hmac.finalize();
+
+  // The first 4 bytes is the first 32-bit word.
+  // We need an unsigned integer (>>> 0).
+  const intVal = hashObj.words[0] >>> 0;
+  return intVal / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

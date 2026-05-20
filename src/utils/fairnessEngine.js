@@ -14,6 +14,22 @@ var crypto_js_1 = __importDefault(require("crypto-js"));
 // Core: Deterministic float from HMAC-SHA256
 // Produces a value in [0, 1) – never uses Math.random().
 // ---------------------------------------------------------------------------
+
+// Cache for HMAC instance to avoid recreation in hot loops
+var _lastSeed = '';
+var _hmacInstance = null;
+
+function _getHmacInstance(serverSeed) {
+    if (serverSeed !== _lastSeed || !_hmacInstance) {
+        _lastSeed = serverSeed;
+        _hmacInstance = crypto_js_1.default.algo.HMAC.create(crypto_js_1.default.algo.SHA256, serverSeed);
+    }
+    else {
+        _hmacInstance.reset();
+    }
+    return _hmacInstance;
+}
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  * Returns the full hex digest (64 hex chars / 256 bits).
@@ -23,7 +39,10 @@ function hmacSha256(serverSeed, clientSeed, nonce, cursor, platform) {
     var message = platform === 'roobet'
         ? "".concat(clientSeed, "-").concat(nonce, "-").concat(cursor)
         : "".concat(clientSeed, ":").concat(nonce, ":").concat(cursor);
-    return crypto_js_1.default.HmacSHA256(message, serverSeed).toString(crypto_js_1.default.enc.Hex);
+
+    var hmac = _getHmacInstance(serverSeed);
+    hmac.update(message);
+    return hmac.finalize().toString(crypto_js_1.default.enc.Hex);
 }
 /**
  * Convert the first 4 bytes (8 hex chars) of a hex hash to a float in [0, 1).
@@ -36,11 +55,20 @@ function hashToFloat(hash) {
 }
 /**
  * Convenience: generate the Nth deterministic float for a given round.
+ * Optimized to extract the 32-bit word directly from the CryptoJS word array.
  */
 function generateFloat(serverSeed, clientSeed, nonce, cursor, platform) {
     if (platform === void 0) { platform = 'stake'; }
-    var hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform);
-    return hashToFloat(hash);
+    var message = platform === 'roobet'
+        ? "".concat(clientSeed, "-").concat(nonce, "-").concat(cursor)
+        : "".concat(clientSeed, ":").concat(nonce, ":").concat(cursor);
+    var hmac = _getHmacInstance(serverSeed);
+    hmac.update(message);
+    var hashObj = hmac.finalize();
+    // The first 4 bytes is the first 32-bit word.
+    // We need an unsigned integer (>>> 0).
+    var intVal = hashObj.words[0] >>> 0;
+    return intVal / 4294967296;
 }
 // ---------------------------------------------------------------------------
 // Crash – provably fair multiplier
