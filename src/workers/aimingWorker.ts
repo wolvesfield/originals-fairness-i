@@ -98,30 +98,27 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
+let lastSeed: string | null = null;
 
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
-}
+let hmacCache: any = null;
 
 /**
  * Generate Nth deterministic float for a given round.
+ * Optimized with HMAC instance caching and direct word bitwise access.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+
+  if (serverSeed !== lastSeed) {
+    lastSeed = serverSeed;
+    hmacCache = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    hmacCache.reset();
+  }
+
+  hmacCache.update(message);
+  const words = hmacCache.finalize().words;
+  return (words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -132,7 +129,7 @@ function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cu
  * Returns mineCount unique cell indices using Fisher-Yates shuffle.
  * Consumes one float per swap via incrementing cursor.
  */
-function generateMinePositions(
+function _generateMinePositions(
   serverSeed: string, clientSeed: string, nonce: number,
   mineCount: number, totalCells: number
 ): number[] {

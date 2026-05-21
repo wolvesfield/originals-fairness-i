@@ -1,0 +1,3 @@
+## 2025-02-28 - HMAC Cryptographic Fast-Path
+**Learning:** Instantiating new HMAC objects and converting output to hex strings via `.toString(CryptoJS.enc.Hex)` within high-frequency loops (like Fisher-Yates float generation) is a massive performance bottleneck. The hot path can be optimized by caching the `CryptoJS.algo.HMAC.create` instance, reusing it via `.reset()` and `.update()`, and reading the internal 32-bit `words` buffer directly.
+**Action:** When working with cryptography in hot loops, always cache objects/contexts and avoid string serialization (hex/base64) when direct bitwise array access achieves the same numerical outcome faster.
