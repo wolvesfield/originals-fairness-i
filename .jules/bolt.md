@@ -1,0 +1,3 @@
+## 2024-05-22 - Optimize hot loop HMAC instantiation in fair PRNG algorithms
+**Learning:** In the core pseudo-random number generator algorithm used millions of times in Monte Carlo simulations (`generateFloat`), creating a new HMAC instance, stringifying the hash via `.toString()`, and then calling `parseInt` is highly inefficient and creates significant garbage collection overhead. Since the `serverSeed` rarely changes within a single simulation block or worker loop, we can cache the `CryptoJS.algo.HMAC` instance per seed.
+**Action:** Always extract the first 32-bit word directly from the `words` array (`hash.words[0] >>> 0`) rather than allocating strings, and reuse `hmacInstance` via `.reset()` and `.update()` in deterministic PRNG hot paths.
