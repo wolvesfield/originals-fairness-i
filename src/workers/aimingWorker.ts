@@ -116,12 +116,30 @@ function hashToFloat(hash: string): number {
   return int / 4294967296;
 }
 
+// ---------------------------------------------------------------------------
+// HMAC Cache for hot path optimization
+// ---------------------------------------------------------------------------
+let lastSeed: string | null = null;
+let cachedHmac: any = null;
+
 /**
  * Generate Nth deterministic float for a given round.
+ * Optimized hot-path that caches the HMAC instance to prevent allocations,
+ * and extracts the float from the first 32-bit word directly.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  if (lastSeed !== serverSeed) {
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastSeed = serverSeed;
+  } else {
+    cachedHmac.reset();
+  }
+
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  const hash = cachedHmac.update(message).finalize();
+
+  // First 4 bytes (words[0]) as unsigned 32-bit integer, divided by 2^32
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
