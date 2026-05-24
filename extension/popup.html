@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Provably-Fair Verifier</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Provably-Fair Verifier</h1>
+      <p class="sub">Mines · Dice · Moles · Drill</p>
+    </header>
+
+    <div class="notice" role="note">
+      <strong>Verification only.</strong> This tool recomputes outcomes of
+      <em>already-settled</em> rounds from a <em>revealed</em> server seed. It
+      cannot predict future rounds — provably-fair outcomes are HMAC-SHA256
+      output and carry no exploitable pattern.
+    </div>
+
+    <main>
+      <label class="field">
+        <span>Game</span>
+        <select id="game">
+          <option value="mines">Mines</option>
+          <option value="dice">Dice</option>
+          <option value="moles">Moles</option>
+          <option value="drill">Drill</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Revealed server seed</span>
+        <input id="serverSeed" type="text" placeholder="server seed shown after rotation" />
+      </label>
+
+      <label class="field">
+        <span>Server seed hash <small>(optional — verifies commitment)</small></span>
+        <input id="serverSeedHash" type="text" placeholder="sha256 the casino committed to" />
+      </label>
+
+      <label class="field">
+        <span>Client seed</span>
+        <input id="clientSeed" type="text" placeholder="client seed" />
+      </label>
+
+      <div class="row">
+        <label class="field">
+          <span>Nonce from</span>
+          <input id="nonceFrom" type="number" min="0" value="0" />
+        </label>
+        <label class="field">
+          <span>Nonce to</span>
+          <input id="nonceTo" type="number" min="0" value="0" />
+        </label>
+      </div>
+
+      <!-- Game-specific params -->
+      <fieldset id="params-mines" class="params">
+        <label class="field"><span>Mines</span><input id="minesCount" type="number" min="1" max="24" value="3" /></label>
+        <label class="field"><span>Total cells</span><input id="minesTotal" type="number" min="2" value="25" /></label>
+      </fieldset>
+
+      <fieldset id="params-moles" class="params" hidden>
+        <label class="field"><span>Moles</span><input id="moleCount" type="number" min="1" value="5" /></label>
+        <label class="field"><span>Total cells</span><input id="molesTotal" type="number" min="2" value="25" /></label>
+      </fieldset>
+
+      <fieldset id="params-drill" class="params" hidden>
+        <label class="field"><span>Rows</span><input id="drillRows" type="number" min="1" value="9" /></label>
+        <label class="field"><span>Tiles / row</span><input id="drillTiles" type="number" min="2" value="3" /></label>
+        <label class="field"><span>Traps / row</span><input id="drillTraps" type="number" min="1" value="1" /></label>
+      </fieldset>
+
+      <button id="verify">Verify</button>
+
+      <div id="commitment" class="commitment" hidden></div>
+      <div id="results"></div>
+    </main>
+
+    <footer>
+      <span>Outcomes are fully determined by (server seed, client seed, nonce).</span>
+    </footer>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

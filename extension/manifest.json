@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Provably-Fair Verifier — Mines · Dice · Moles · Drill",
+  "version": "1.0.0",
+  "description": "Recompute and verify settled provably-fair outcomes from a revealed seed. Verification only — it does not and cannot predict future rounds.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Provably-Fair Verifier"
+  }
+}
