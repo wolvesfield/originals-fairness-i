@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mines Fairness Verifier</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>Mines Fairness Verifier</h1>
+        <p class="sub">Recompute a settled round from a revealed seed and confirm it was fair.</p>
+      </header>
+
+      <div class="notice">
+        <strong>Verification only.</strong> This recomputes outcomes of
+        <em>already-settled</em> rounds from a <em>revealed</em> server seed. It
+        does not predict future rounds — provably-fair outcomes are HMAC-SHA256
+        output and carry no exploitable pattern. There is no "next outcome" to
+        compute until the seed is revealed, which only happens after those rounds
+        have settled.
+      </div>
+
+      <main class="grid">
+        <section class="panel">
+          <h2>Round inputs</h2>
+
+          <label class="field">
+            <span>Game</span>
+            <select id="game">
+              <option value="mines" selected>Mines</option>
+              <option value="dice">Dice</option>
+              <option value="moles">Moles</option>
+              <option value="drill">Drill</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Revealed server seed</span>
+            <input id="serverSeed" type="text" placeholder="seed shown after you rotated it" />
+          </label>
+
+          <label class="field">
+            <span>Server seed hash <small>(optional — verifies the commitment)</small></span>
+            <input id="serverSeedHash" type="text" placeholder="sha256 the casino committed to before play" />
+          </label>
+
+          <label class="field">
+            <span>Client seed</span>
+            <input id="clientSeed" type="text" placeholder="client seed" />
+          </label>
+
+          <div class="row">
+            <label class="field"><span>Nonce from</span><input id="nonceFrom" type="number" min="0" value="0" /></label>
+            <label class="field"><span>Nonce to</span><input id="nonceTo" type="number" min="0" value="0" /></label>
+          </div>
+
+          <fieldset id="params-mines" class="params">
+            <label class="field"><span>Mines</span><input id="minesCount" type="number" min="1" max="24" value="3" /></label>
+            <label class="field"><span>Total cells</span><input id="minesTotal" type="number" min="2" value="25" /></label>
+          </fieldset>
+          <fieldset id="params-moles" class="params" hidden>
+            <label class="field"><span>Moles</span><input id="moleCount" type="number" min="1" value="5" /></label>
+            <label class="field"><span>Total cells</span><input id="molesTotal" type="number" min="2" value="25" /></label>
+          </fieldset>
+          <fieldset id="params-drill" class="params" hidden>
+            <label class="field"><span>Rows</span><input id="drillRows" type="number" min="1" value="9" /></label>
+            <label class="field"><span>Tiles / row</span><input id="drillTiles" type="number" min="2" value="3" /></label>
+            <label class="field"><span>Traps / row</span><input id="drillTraps" type="number" min="1" value="1" /></label>
+          </fieldset>
+
+          <button id="verify">Verify round(s)</button>
+          <div id="commitment" class="commitment" hidden></div>
+        </section>
+
+        <section class="panel">
+          <h2>Recomputed outcome</h2>
+          <div id="results" class="results"><p class="empty">Enter a revealed seed and click verify.</p></div>
+        </section>
+      </main>
+
+      <footer>
+        Outcome = HMAC-SHA256(serverSeed, clientSeed:nonce:round) → floats → game logic.
+        Deterministic: anyone with the revealed seed gets the identical result.
+      </footer>
+    </div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
