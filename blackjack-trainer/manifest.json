@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Blackjack Strategy & Counting Trainer",
+  "version": "1.0.0",
+  "description": "Offline basic-strategy advisor and Hi-Lo counting practice for a full table. Manual input / simulated shoe — not connected to any casino.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Blackjack Trainer"
+  }
+}

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Blackjack Strategy & Counting Trainer</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Blackjack Trainer</h1>
+      <p class="sub">Basic strategy advisor · Hi-Lo counting practice</p>
+    </header>
+
+    <div class="notice">
+      <strong>Practice &amp; reference tool.</strong> Offline math only — manual
+      input or a simulated shoe. Not connected to any casino. Basic strategy
+      minimizes the house edge; it does not make blackjack a winning game.
+    </div>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="strategy">Strategy</button>
+      <button class="tab" data-tab="trainer">Counting Trainer</button>
+    </nav>
+
+    <!-- Rules apply to both tabs -->
+    <fieldset class="rules">
+      <legend>Table rules</legend>
+      <label><span>Decks</span>
+        <select id="decks"><option>1</option><option>2</option><option>4</option><option>6</option><option selected>8</option></select>
+      </label>
+      <label><span>Soft 17</span>
+        <select id="soft17"><option value="s17" selected>Dealer stands</option><option value="h17">Dealer hits</option></select>
+      </label>
+      <label class="chk"><input type="checkbox" id="das" checked /> <span>Double after split</span></label>
+      <label class="chk"><input type="checkbox" id="surrender" /> <span>Late surrender</span></label>
+    </fieldset>
+
+    <!-- Strategy tab -->
+    <section id="tab-strategy" class="tabpane">
+      <div class="card-pickers">
+        <div class="picker">
+          <span class="lbl">Your cards</span>
+          <div id="playerCards" class="chosen"></div>
+          <div id="playerPad" class="pad"></div>
+          <button id="clearPlayer" class="mini">clear</button>
+        </div>
+        <div class="picker">
+          <span class="lbl">Dealer upcard</span>
+          <div id="dealerCard" class="chosen single"></div>
+          <div id="dealerPad" class="pad"></div>
+        </div>
+      </div>
+      <div id="advice" class="advice"></div>
+      <p class="footnote">Other players at the table don't change this decision — only your hand vs. the dealer's upcard does.</p>
+    </section>
+
+    <!-- Counting trainer tab -->
+    <section id="tab-trainer" class="tabpane" hidden>
+      <label class="players-row"><span>Players at table</span>
+        <input id="players" type="number" min="1" max="7" value="5" />
+      </label>
+      <div class="trainer-controls">
+        <button id="deal">Deal round</button>
+        <button id="reshuffle" class="secondary">Reshuffle</button>
+      </div>
+      <div id="table" class="table"></div>
+      <div class="guess-row">
+        <label><span>Your running count</span><input id="guessRC" type="number" placeholder="?" /></label>
+        <button id="checkCount">Check</button>
+      </div>
+      <div id="countResult" class="count-result"></div>
+      <div class="shoe-stats">
+        <span>Cards left: <b id="cardsLeft">—</b></span>
+        <span>Decks left: <b id="decksLeft">—</b></span>
+        <span>Accuracy: <b id="accuracy">—</b></span>
+      </div>
+    </section>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
