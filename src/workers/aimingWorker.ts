@@ -119,9 +119,24 @@ function hashToFloat(hash: string): number {
 /**
  * Generate Nth deterministic float for a given round.
  */
+let lastSeed: string | null = null;
+let lastHmac: any = null;
+
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  if (serverSeed !== lastSeed || !lastHmac) {
+    lastSeed = serverSeed;
+    lastHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    lastHmac.reset();
+  }
+
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  lastHmac.update(message);
+  const hash = lastHmac.finalize();
+
+  // Extract first 4 bytes as unsigned 32-bit int and divide by 2^32
+  const int = hash.words[0] >>> 0;
+  return int / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,3 @@
+## 2025-05-31 - [Optimizing CSPRNG]
+**Learning:** `CryptoJS.algo.HMAC.create` can provide significant performance improvements (~3x) when computing deterministic floats inside nested hot loops (like checking large nonce ranges). Reusing an HMAC instance prevents allocating and garbage-collecting thousands of objects per second. Furthermore, bitwise operations (`words[0] >>> 0`) are dramatically faster than hexadecimal parsing string slicing.
+**Action:** Replace string-based HMAC operations with instance-based `.update()` and `.finalize()` wherever generating random floats in a hot loop (particularly in `src/utils/fairnessEngine.ts` and `src/workers/aimingWorker.ts`). Remember to synchronize changes across both `fairnessEngine.ts` and `aimingWorker.ts`.
