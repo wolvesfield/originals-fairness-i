@@ -99,29 +99,32 @@ self.onmessage = (event: MessageEvent) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
+ * Single-value cache to reuse the HMAC instance.
+ * Re-instantiating CryptoJS HMAC in a tight loop is expensive.
  */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
-
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
-}
+let lastSeed = '';
+let lastHmac: any = null;
 
 /**
  * Generate Nth deterministic float for a given round.
+ * Highly optimized by caching the HMAC instance and avoiding string allocations.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  if (serverSeed !== lastSeed || !lastHmac) {
+    lastSeed = serverSeed;
+    lastHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    lastHmac.reset();
+  }
+
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+
+  lastHmac.update(message);
+  const hash = lastHmac.finalize();
+
+  // We want the first 4 bytes. In CryptoJS, hash.words contains 32-bit integers.
+  // The first word is the first 4 bytes. Unsigned right shift converts it to a positive uint32.
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

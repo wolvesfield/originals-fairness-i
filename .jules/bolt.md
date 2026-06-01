@@ -1,0 +1,3 @@
+## 2024-06-01 - CSPRNG Hot Path Performance (CryptoJS HMAC)
+**Learning:** Re-instantiating `CryptoJS.HmacSHA256` and allocating hex strings (via `.toString(CryptoJS.enc.Hex)`) inside a tight mathematical loop (e.g., generating thousands of floats for Monte Carlo permutations) is a significant architectural bottleneck. `CryptoJS` is heavily object-oriented and allocates significant memory per instantiation.
+**Action:** In hot loops, always cache the HMAC instance using `CryptoJS.algo.HMAC.create` and reuse it via `.reset()` and `.update()`. Furthermore, avoid string allocations entirely by extracting the resulting 32-bit integer directly from the internal words array (`hash.words[0] >>> 0`) rather than converting to hex and parsing it.
