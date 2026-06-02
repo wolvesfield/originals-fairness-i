@@ -95,33 +95,32 @@ self.onmessage = (event: MessageEvent) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Core crypto — matches fairnessEngine.ts exactly
+// Core crypto — matches fairnessEngine.ts exactly in correctness, but highly optimized
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
+let currentHmacCache: ReturnType<typeof CryptoJS.algo.HMAC.create> | null = null;
+let currentHmacServerSeed: string | null = null;
 
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
+function getHmacInstance(serverSeed: string) {
+  if (currentHmacServerSeed !== serverSeed || !currentHmacCache) {
+    currentHmacCache = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    currentHmacServerSeed = serverSeed;
+  }
+  return currentHmacCache;
 }
 
 /**
  * Generate Nth deterministic float for a given round.
+ * Heavily optimized version to avoid string allocations and hex conversions.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const hmac = getHmacInstance(serverSeed);
+  hmac.reset();
+  hmac.update(`${clientSeed}:${nonce}:${cursor}`);
+  const hash = hmac.finalize();
+
+  // Extract first 32 bits (4 bytes / 8 hex chars) directly and convert to [0, 1) float
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
