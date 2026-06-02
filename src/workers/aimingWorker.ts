@@ -98,56 +98,32 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
-
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
-}
+// Cache for HMAC instance to avoid re-instantiation in hot loops
+let lastSeed: string | null = null;
+let hmacInstance: any = null;
 
 /**
  * Generate Nth deterministic float for a given round.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+
+  if (serverSeed !== lastSeed || !hmacInstance) {
+    hmacInstance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastSeed = serverSeed;
+  } else {
+    hmacInstance.reset();
+  }
+
+  hmacInstance.update(message);
+  const hash = hmacInstance.finalize();
+  const int = hash.words[0] >>> 0;
+  return int / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mines — Fisher-Yates shuffle (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Returns mineCount unique cell indices using Fisher-Yates shuffle.
- * Consumes one float per swap via incrementing cursor.
- */
-function generateMinePositions(
-  serverSeed: string, clientSeed: string, nonce: number,
-  mineCount: number, totalCells: number
-): number[] {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
-  let cursor = 0;
-
-  for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
-    cursor++;
-    const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
-  }
-
-  return cells.slice(totalCells - mineCount);
-}
 
 /**
  * Truncated search: early-exit if any target tile is already in a mine swap
