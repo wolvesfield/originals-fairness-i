@@ -26,12 +26,32 @@ export function hashToFloat(hash: string): number {
   return int / 4294967296                   // 0 .. < 1
 }
 
+// ---------------------------------------------------------------------------
+// Optimization: HMAC Cache for Hot Paths
+// ---------------------------------------------------------------------------
+let cachedServerSeed: string | null = null;
+let cachedHmac: any = null;
+
 /**
  * Convenience: generate the Nth deterministic float for a given round.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  if (serverSeed !== cachedServerSeed || !cachedHmac) {
+    cachedServerSeed = serverSeed;
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  }
+
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  cachedHmac.reset()
+  cachedHmac.update(message)
+  const hash = cachedHmac.finalize()
+
+  // Optimization: Extract first 32 bits natively using bitwise shift (avoid string parsing hex)
+  const int = hash.words[0] >>> 0
+  return int / 4294967296
 }
 
 // ---------------------------------------------------------------------------
@@ -141,16 +161,37 @@ export function generateKenoNumbers(
   count: number = 10,
   maxNum: number = 40
 ): number[] {
-  const drawn = new Set<number>()
+  const drawn: number[] = []
+  let mask1 = 0
+  let mask2 = 0
+  let mask3 = 0
   let cursor = 0
 
-  while (drawn.size < count) {
+  while (drawn.length < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor)
     cursor++
 
     const num = Math.floor(float * maxNum) + 1   // 1 .. maxNum
-    drawn.add(num)                                // Set ignores duplicates
+
+    if (num < 32) {
+      if ((mask1 & (1 << num)) === 0) {
+        mask1 |= (1 << num)
+        drawn.push(num)
+      }
+    } else if (num < 64) {
+      const shift = num - 32
+      if ((mask2 & (1 << shift)) === 0) {
+        mask2 |= (1 << shift)
+        drawn.push(num)
+      }
+    } else {
+      const shift = num - 64
+      if ((mask3 & (1 << shift)) === 0) {
+        mask3 |= (1 << shift)
+        drawn.push(num)
+      }
+    }
   }
 
-  return Array.from(drawn).sort((a, b) => a - b)
+  return drawn.sort((a, b) => a - b)
 }
