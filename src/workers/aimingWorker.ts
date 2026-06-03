@@ -98,30 +98,25 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
-
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
-}
+let cachedServerSeed: string | null = null;
+let cachedHmac: any = null;
 
 /**
  * Generate Nth deterministic float for a given round.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  if (serverSeed !== cachedServerSeed || !cachedHmac) {
+    cachedServerSeed = serverSeed;
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  }
+
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  cachedHmac.reset();
+  cachedHmac.update(message);
+  const hash = cachedHmac.finalize();
+
+  const int = hash.words[0] >>> 0;
+  return int / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -160,7 +155,14 @@ function validateMinesState(
 ): boolean {
   const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
+
+  let mask1 = 0;
+  let mask2 = 0;
+  for (let i = 0; i < targetPattern.length; i++) {
+    const t = targetPattern[i];
+    if (t < 32) mask1 |= (1 << t);
+    else mask2 |= (1 << (t - 32));
+  }
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
@@ -169,8 +171,11 @@ function validateMinesState(
     [cells[i], cells[j]] = [cells[j], cells[i]];
 
     // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
-      return false;
+    const cell = cells[i];
+    if (cell < 32) {
+      if ((mask1 & (1 << cell)) !== 0) return false;
+    } else {
+      if ((mask2 & (1 << (cell - 32))) !== 0) return false;
     }
   }
 
@@ -185,17 +190,39 @@ function generateKenoNumbers(
   serverSeed: string, clientSeed: string, nonce: number,
   count: number, maxNum: number
 ): number[] {
-  const drawn = new Set<number>();
+  const drawn: number[] = [];
   let cursor = 0;
 
-  while (drawn.size < count) {
+  let mask1 = 0;
+  let mask2 = 0;
+  let mask3 = 0;
+
+  while (drawn.length < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
+
+    if (num < 32) {
+      if ((mask1 & (1 << num)) === 0) {
+        mask1 |= (1 << num);
+        drawn.push(num);
+      }
+    } else if (num < 64) {
+      const shift = num - 32;
+      if ((mask2 & (1 << shift)) === 0) {
+        mask2 |= (1 << shift);
+        drawn.push(num);
+      }
+    } else {
+      const shift = num - 64;
+      if ((mask3 & (1 << shift)) === 0) {
+        mask3 |= (1 << shift);
+        drawn.push(num);
+      }
+    }
   }
 
-  return Array.from(drawn);
+  return drawn;
 }
 
 function validateKenoState(
@@ -203,9 +230,29 @@ function validateKenoState(
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
   const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  let mask1 = 0;
+  let mask2 = 0;
+  let mask3 = 0;
+  for (let i = 0; i < drawn.length; i++) {
+    const num = drawn[i];
+    if (num < 32) mask1 |= (1 << num);
+    else if (num < 64) mask2 |= (1 << (num - 32));
+    else mask3 |= (1 << (num - 64));
+  }
+
+  let hitCount = 0;
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    const n = selectedNumbers[i];
+    if (n < 32) {
+      if ((mask1 & (1 << n)) !== 0) hitCount++;
+    } else if (n < 64) {
+      if ((mask2 & (1 << (n - 32))) !== 0) hitCount++;
+    } else {
+      if ((mask3 & (1 << (n - 64))) !== 0) hitCount++;
+    }
+  }
+
+  return hitCount >= minHits;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
