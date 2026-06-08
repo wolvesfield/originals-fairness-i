@@ -307,7 +307,7 @@ export class MasterController {
     // P(all k target tiles safe) = C(totalCells-mineCount, k) / C(totalCells, k)
     // This is the TRUE probability without replacement
     const k = targetPattern.length;
-    const confidence = 0.9135; // User requested exact 91.35% win rate baseline
+    let confidence = 0.9135; // User requested exact 91.35% win rate baseline
 
     const hedgeFactor = this.hedge.calculateHedgeFactor(1);
     const alloc = this.allocation.calculateOptimalAllocation(confidence, 2.0, bankroll) * hedgeFactor;
