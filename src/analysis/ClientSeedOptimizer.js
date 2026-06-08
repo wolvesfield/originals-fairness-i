@@ -75,7 +75,7 @@ var ClientSeedOptimizer = /** @class */ (function () {
         // SCENARIO B: PROBABILISTIC MODE (We only have the hash)
         // We cannot mathematically guarantee the exact position without the server seed.
         // But we CAN find a client seed that clusters the HMAC-SHA256 float generations
-        // in patterns away from our targets over a Monte Carlo spread. 
+        // in patterns away from our targets over a Monte Carlo spread.
         while (performance.now() - startTime < maxSearchTimeMs) {
             iterations++;
             var candidateSeed = this.generateRandomSeed();
