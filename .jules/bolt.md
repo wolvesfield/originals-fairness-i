@@ -1,0 +1,3 @@
+## 2024-05-18 - CryptoJS caching and bitwise optimization
+**Learning:** In hot paths (like brute-forcing nonces), generating a new HMAC instance using `CryptoJS.HmacSHA256()` or converting to a hex string with `.toString(CryptoJS.enc.Hex)` is a major bottleneck due to frequent object allocation and string manipulations. Memory contexts suggest caching `CryptoJS.algo.HMAC.create()` instances and reusing them with `.reset()` and `.update()`. Also, extracting values via bitwise shift from the hash's words array (`hash.words[0] >>> 0`) is significantly faster than hexadecimal string conversion (`parseInt(hex, 16)`).
+**Action:** Apply this pattern in `src/utils/fairnessEngine.ts` and `src/workers/aimingWorker.ts`.
