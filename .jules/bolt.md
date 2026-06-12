@@ -1,0 +1,4 @@
+
+## 2025-02-20 - Avoid Hex String Conversions in Cryptographic Hot Paths
+**Learning:** Calling `.toString(CryptoJS.enc.Hex)` in hot loops creates significant garbage collection pressure and string allocation overhead. For instance, in our continuous brute force algorithm scanning random numbers, calculating `CryptoJS.HmacSHA256().toString(CryptoJS.enc.Hex)` on every iteration and then using `.slice()` to extract substrings performs far slower than retaining the raw integer array (`words`).
+**Action:** When working with CryptoJS for numeric derivation (like hash-to-float or bitwise crash point generation), do not format to hex strings. Cache the HMAC instance using `CryptoJS.algo.HMAC.create`, update it dynamically, finalize, and use direct bitwise operations on the underlying `hashObj.words` (e.g. `hashObj.words[0] >>> 0`) to extract raw bytes.
