@@ -5,6 +5,18 @@ import CryptoJS from 'crypto-js'
 // Produces a value in [0, 1) – never uses Math.random().
 // ---------------------------------------------------------------------------
 
+// Single-value cache to prevent memory leaks while optimizing hot loops
+let lastSeed: string | null = null
+let lastHmac: any = null
+
+function getCachedHmac(serverSeed: string) {
+  if (lastSeed !== serverSeed) {
+    lastHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed)
+    lastSeed = serverSeed
+  }
+  return lastHmac
+}
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  * Returns the full hex digest (64 hex chars / 256 bits).
@@ -13,7 +25,11 @@ export function hmacSha256(serverSeed: string, clientSeed: string, nonce: number
   const message = platform === 'roobet'
     ? `${clientSeed}-${nonce}-${cursor}`
     : `${clientSeed}:${nonce}:${cursor}`
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+
+  const hmac = getCachedHmac(serverSeed)
+  hmac.reset()
+  hmac.update(message)
+  return hmac.finalize().toString(CryptoJS.enc.Hex)
 }
 
 /**
@@ -30,8 +46,17 @@ export function hashToFloat(hash: string): number {
  * Convenience: generate the Nth deterministic float for a given round.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  const hmac = getCachedHmac(serverSeed)
+  hmac.reset()
+  hmac.update(message)
+  const hash = hmac.finalize()
+
+  // Extract the first 32-bit word using bitwise shift and divide by 2^32
+  return (hash.words[0] >>> 0) / 4294967296
 }
 
 // ---------------------------------------------------------------------------
@@ -51,10 +76,14 @@ export function generateFloat(serverSeed: string, clientSeed: string, nonce: num
  */
 export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonce: number): number {
   const message = `${clientSeed}:${nonce}`
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+  const hmac = getCachedHmac(serverSeed)
+  hmac.reset()
+  hmac.update(message)
+  const hash = hmac.finalize()
 
-  // First 13 hex chars → integer (fits within JS safe integer range: 16^13 ≈ 4.5e15 < 2^53)
-  const h = parseInt(hash.slice(0, 13), 16)
+  // First 13 hex chars represent 52 bits. Combine first two 32-bit elements
+  // of the words array: (words[0] >>> 0) * 1048576 + (words[1] >>> 12)
+  const h = (hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12)
 
   // House edge: ~3 % of rounds instant-crash at 1.00x
   if (h % 33 === 0) {
