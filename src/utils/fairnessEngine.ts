@@ -5,6 +5,10 @@ import CryptoJS from 'crypto-js'
 // Produces a value in [0, 1) – never uses Math.random().
 // ---------------------------------------------------------------------------
 
+// Single-value caches to prevent memory leaks while optimizing hot-paths
+let cachedHmacServerSeed: string | null = null
+let cachedHmacInstance: any = null
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  * Returns the full hex digest (64 hex chars / 256 bits).
@@ -28,15 +32,34 @@ export function hashToFloat(hash: string): number {
 
 /**
  * Convenience: generate the Nth deterministic float for a given round.
+ * OPTIMIZED: Uses cached HMAC instance and bitwise word extraction to avoid string allocations.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  if (serverSeed !== cachedHmacServerSeed || !cachedHmacInstance) {
+    cachedHmacServerSeed = serverSeed
+    cachedHmacInstance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed)
+  } else {
+    cachedHmacInstance.reset()
+  }
+
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  cachedHmacInstance.update(message)
+  const hashWords = cachedHmacInstance.finalize().words
+
+  // Extract first 32 bits (4 bytes / 8 hex chars) directly from the words array
+  const w0 = hashWords[0] >>> 0
+  return w0 / 4294967296
 }
 
 // ---------------------------------------------------------------------------
 // Crash – provably fair multiplier
 // ---------------------------------------------------------------------------
+
+let cachedCrashHmacServerSeed: string | null = null
+let cachedCrashHmacInstance: any = null
 
 /**
  * Crash multiplier derived from HMAC-SHA256.
@@ -48,13 +71,30 @@ export function generateFloat(serverSeed: string, clientSeed: string, nonce: num
  *   3. if h % 33 === 0 → result = 1  (the "instant crash" / house edge).
  *   4. Otherwise:  result = floor( (100 * 2^52 - h) / (2^52 - h) ) / 100
  *   5. Return max(1, result) to guarantee minimum 1.00x.
+ *
+ * OPTIMIZED: Avoids hex string conversion, using direct bitwise extraction of 52 bits.
  */
 export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonce: number): number {
-  const message = `${clientSeed}:${nonce}`
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+  if (serverSeed !== cachedCrashHmacServerSeed || !cachedCrashHmacInstance) {
+    cachedCrashHmacServerSeed = serverSeed
+    cachedCrashHmacInstance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed)
+  } else {
+    cachedCrashHmacInstance.reset()
+  }
 
-  // First 13 hex chars → integer (fits within JS safe integer range: 16^13 ≈ 4.5e15 < 2^53)
-  const h = parseInt(hash.slice(0, 13), 16)
+  const message = `${clientSeed}:${nonce}`
+  cachedCrashHmacInstance.update(message)
+  const hashWords = cachedCrashHmacInstance.finalize().words
+
+  // First 13 hex chars = 52 bits.
+  // First word [0] gives 32 bits.
+  // Second word [1] shifted right by 12 gives the remaining 20 bits.
+  const w0 = hashWords[0] >>> 0
+  const w1 = hashWords[1] >>> 0
+
+  // Combine into a 52-bit integer. Standard bitwise ops only support 32 bits,
+  // so we use multiplication for the higher-order part.
+  const h = (w0 * 1048576) + (w1 >>> 12)
 
   // House edge: ~3 % of rounds instant-crash at 1.00x
   if (h % 33 === 0) {
