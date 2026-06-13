@@ -62,9 +62,35 @@ app.post('/aim/mines', (req, res) => {
 
   for (let n = nonce; n < nonce + cap; n++) {
     const mines = generateMinePositions(serverSeed, clientSeed, n, mineCount, totalCells)
-    const allSafe = !targetTiles.some((t: number) => mines.includes(t))
+
+    // Performance: Manual nested loop outperforms .some() and .includes() in this hot path
+    let allSafe = true
+    const tLen = targetTiles.length
+    const mLen = mines.length
+    for (let t = 0; t < tLen; t++) {
+      const tile = targetTiles[t]
+      for (let m = 0; m < mLen; m++) {
+        if (mines[m] === tile) {
+          allSafe = false
+          break
+        }
+      }
+      if (!allSafe) break
+    }
+
     if (allSafe) {
-      const safeTiles = Array.from({ length: totalCells }, (_, i) => i).filter(i => !mines.includes(i))
+      // Performance: Manual loop avoids expensive Array.from().filter() allocations
+      const safeTiles = []
+      for (let i = 0; i < totalCells; i++) {
+        let isMine = false
+        for (let m = 0; m < mLen; m++) {
+          if (mines[m] === i) {
+            isMine = true
+            break
+          }
+        }
+        if (!isMine) safeTiles.push(i)
+      }
       golden.push({ nonce: n, mines, safeTiles })
     }
   }
@@ -99,9 +125,23 @@ app.post('/aim/keno', (req, res) => {
   const cap = Math.min(lookAhead, MAX_LOOK_AHEAD)
   const results: Array<{ nonce: number; drawn: number[]; hits: number[]; hitCount: number }> = []
 
+  const pLen = playerPicks.length
   for (let n = nonce; n < nonce + cap; n++) {
     const drawn = generateKenoNumbers(serverSeed, clientSeed, n, drawCount, maxNum)
-    const hits = playerPicks.filter((p: number) => drawn.includes(p))
+
+    // Performance: Manual loop avoids .filter() and .includes() in this hot path
+    const hits = []
+    const dLen = drawn.length
+    for (let p = 0; p < pLen; p++) {
+      const pick = playerPicks[p]
+      for (let d = 0; d < dLen; d++) {
+        if (drawn[d] === pick) {
+          hits.push(pick)
+          break
+        }
+      }
+    }
+
     results.push({ nonce: n, drawn, hits, hitCount: hits.length })
   }
 

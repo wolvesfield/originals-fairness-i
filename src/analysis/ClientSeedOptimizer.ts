@@ -59,7 +59,21 @@ export class ClientSeedOptimizer {
                 const candidateSeed = this.generateRandomSeed();
                 const mines = generateMinePositions(unhashedServerSeed, candidateSeed, nonce, mineCount, totalCells, platform);
 
-                const isCompletelySafe = !targetTiles.some(t => mines.includes(t));
+                // Performance: Manual nested loop outperforms .some() and .includes() for small arrays
+                let isCompletelySafe = true;
+                const tLen = targetTiles.length;
+                const mLen = mines.length;
+                for (let t = 0; t < tLen; t++) {
+                    const tile = targetTiles[t];
+                    for (let m = 0; m < mLen; m++) {
+                        if (mines[m] === tile) {
+                            isCompletelySafe = false;
+                            break;
+                        }
+                    }
+                    if (!isCompletelySafe) break;
+                }
+
                 if (isCompletelySafe) {
                     // Found a golden seed instantly
                     return {
@@ -94,7 +108,22 @@ export class ClientSeedOptimizer {
                 // This measures the client seed's geometric resilience to random server seeds
                 const simServerSeed = `sim-${serverSeedHash}-${i}`;
                 const mines = generateMinePositions(simServerSeed, candidateSeed, nonce, mineCount, totalCells, platform);
-                if (!targetTiles.some(t => mines.includes(t))) {
+                // Performance: Manual nested loop avoids high-frequency allocations in Monte Carlo scan
+                let safe = true;
+                const tLen = targetTiles.length;
+                const mLen = mines.length;
+                for (let t = 0; t < tLen; t++) {
+                    const tile = targetTiles[t];
+                    for (let m = 0; m < mLen; m++) {
+                        if (mines[m] === tile) {
+                            safe = false;
+                            break;
+                        }
+                    }
+                    if (!safe) break;
+                }
+
+                if (safe) {
                     safeHits++;
                 }
             }
