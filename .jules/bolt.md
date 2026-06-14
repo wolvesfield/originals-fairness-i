@@ -1,0 +1,3 @@
+## 2023-10-27 - [HMAC Crypto Caching and Bitwise Math in Hot Loops]
+**Learning:** In cryptographic hot paths like monte carlo simulations and nonce cracking (millions of iterations), `CryptoJS.HmacSHA256(message, seed).toString(CryptoJS.enc.Hex)` is extremely slow due to repeated HMAC instance creation and hexadecimal string allocation. Furthermore, `parseInt(hash.slice(0, 8), 16)` is inefficient for parsing bits.
+**Action:** Always cache the HMAC instance using `CryptoJS.algo.HMAC.create`, reuse it with `.reset()` and `.update()`, and extract numeric values directly using the internal `.words` array with unsigned bitwise shifts (e.g., `hash.words[0] >>> 0`).
