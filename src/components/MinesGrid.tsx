@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 
 interface Props {
   heatMap: number[];
@@ -9,7 +9,8 @@ interface Props {
   mineCount?: number; // number of mines for base rate calculation
 }
 
-export const MinesGrid: React.FC<Props> = ({ 
+// Memoized to prevent unnecessary re-renders when parent state (like input fields) changes without affecting the grid.
+export const MinesGrid = memo<Props>(({
   heatMap, 
   isCracked, 
   safeTiles = [], 
@@ -102,4 +103,4 @@ export const MinesGrid: React.FC<Props> = ({
       })}
     </div>
   );
-};
+});
