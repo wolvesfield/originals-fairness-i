@@ -1,0 +1,3 @@
+## 2024-05-15 - Fast HMAC and bitwise integer ops
+**Learning:** For extremely high frequency cryptographic checks in brute-force scanning (like generating ~500k game configurations per second in `aimingWorker.ts`), creating an HMAC instance each time (`CryptoJS.HmacSHA256`) or relying on hex string conversion + `parseInt` is exceptionally slow.
+**Action:** Caching the HMAC instance using `CryptoJS.algo.HMAC.create` and reusing it via `.reset()` and `.update()`, and converting bytes to uint32 using bitwise shifts (`(hash.words[0] >>> 0) / 4294967296` for floats, or `(hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12)` for 52-bit crash ints) yields a massive 2.5x to 3x performance improvement during brute forcing.

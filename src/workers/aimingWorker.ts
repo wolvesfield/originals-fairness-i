@@ -95,59 +95,40 @@ self.onmessage = (event: MessageEvent) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Core crypto — matches fairnessEngine.ts exactly
+// Core crypto — optimized with cached HMAC & bitwise ops
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
+let _hmacInstance: ReturnType<typeof CryptoJS.algo.HMAC.create> | null = null;
+let _currentServerSeed: string | null = null;
 
 /**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
+ * Retrieve or initialize a cached HMAC instance for the given serverSeed.
+ * Reduces object allocation overhead during high-frequency brute-forcing.
  */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
+function getHmac(serverSeed: string) {
+  if (_hmacInstance && _currentServerSeed === serverSeed) {
+    return _hmacInstance;
+  }
+  _hmacInstance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  _currentServerSeed = serverSeed;
+  return _hmacInstance;
 }
 
 /**
  * Generate Nth deterministic float for a given round.
+ * Uses cached HMAC and bitwise operations to avoid expensive hex string conversions.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const hmac = getHmac(serverSeed);
+  hmac.reset();
+  hmac.update(`${clientSeed}:${nonce}:${cursor}`);
+  const hash = hmac.finalize();
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mines — Fisher-Yates shuffle (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Returns mineCount unique cell indices using Fisher-Yates shuffle.
- * Consumes one float per swap via incrementing cursor.
- */
-function generateMinePositions(
-  serverSeed: string, clientSeed: string, nonce: number,
-  mineCount: number, totalCells: number
-): number[] {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
-  let cursor = 0;
-
-  for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
-    cursor++;
-    const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
-  }
-
-  return cells.slice(totalCells - mineCount);
-}
 
 /**
  * Truncated search: early-exit if any target tile is already in a mine swap
@@ -209,17 +190,19 @@ function validateKenoState(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Crash — industry standard (identical to fairnessEngine.ts)
+// Crash — industry standard (optimized with cached HMAC & bitwise ops)
 // ─────────────────────────────────────────────────────────────────────────────
 
 function validateCrashState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
-  const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = getHmac(serverSeed);
+  hmac.reset();
+  hmac.update(`${clientSeed}:${nonce}`);
+  const hash = hmac.finalize();
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  const h = (hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
