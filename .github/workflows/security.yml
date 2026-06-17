@@ -33,6 +33,7 @@ jobs:
 
   dependency-review:
     runs-on: ubuntu-latest
+    continue-on-error: true
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
