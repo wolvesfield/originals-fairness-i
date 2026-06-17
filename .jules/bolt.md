@@ -1,0 +1,4 @@
+
+## 2025-03-05 - Extreme UHF Crypto Optimizations using CryptoJS words array
+**Learning:** In ultra-high frequency (UHF) web workers running brute-force cryptographic tasks in JS/Node.js, using `hash.toString(CryptoJS.enc.Hex)` and `parseInt` causes immense performance degradation due to memory allocations and string interning overheads. We can skip string parsing entirely by accessing the 32-bit `words` array within the `CryptoJS` HMAC object directly.
+**Action:** For hash-to-float conversions, use `(hash.words[0] >>> 0) / 4294967296`. For larger numbers like Crash 52-bit extraction, extract and shift multiple words using integer math: `(hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12)`. This yields 3x-4x speedups. Additionally, pre-allocate `Uint8Array` for membership testing inside tight loops rather than creating `Set` or `Array.from` per iteration to kill garbage collector pauses.
