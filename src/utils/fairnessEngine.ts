@@ -26,12 +26,27 @@ export function hashToFloat(hash: string): number {
   return int / 4294967296                   // 0 .. < 1
 }
 
+let cachedFloatHmac: any = null
+let cachedFloatSeed: string = ''
+
 /**
  * Convenience: generate the Nth deterministic float for a given round.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  if (cachedFloatSeed !== serverSeed || !cachedFloatHmac) {
+    cachedFloatHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed)
+    cachedFloatSeed = serverSeed
+  }
+
+  cachedFloatHmac.reset()
+  cachedFloatHmac.update(message)
+  const hash = cachedFloatHmac.finalize()
+
+  return (hash.words[0] >>> 0) / 4294967296
 }
 
 // ---------------------------------------------------------------------------
@@ -49,12 +64,23 @@ export function generateFloat(serverSeed: string, clientSeed: string, nonce: num
  *   4. Otherwise:  result = floor( (100 * 2^52 - h) / (2^52 - h) ) / 100
  *   5. Return max(1, result) to guarantee minimum 1.00x.
  */
+let cachedCrashHmac: any = null
+let cachedCrashSeed: string = ''
+
 export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonce: number): number {
   const message = `${clientSeed}:${nonce}`
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
 
-  // First 13 hex chars → integer (fits within JS safe integer range: 16^13 ≈ 4.5e15 < 2^53)
-  const h = parseInt(hash.slice(0, 13), 16)
+  if (cachedCrashSeed !== serverSeed || !cachedCrashHmac) {
+    cachedCrashHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed)
+    cachedCrashSeed = serverSeed
+  }
+
+  cachedCrashHmac.reset()
+  cachedCrashHmac.update(message)
+  const hash = cachedCrashHmac.finalize()
+
+  // First 13 hex characters are 52 bits. Word 0 = 32 bits, Word 1 = 20 bits.
+  const h = (hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12)
 
   // House edge: ~3 % of rounds instant-crash at 1.00x
   if (h % 33 === 0) {
