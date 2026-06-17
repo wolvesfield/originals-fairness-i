@@ -2,7 +2,7 @@
 // Simplified for HMAC-SHA256 generation in Crash/Mines
 
 // Constants
-const K: u32[] = [
+const _K: u32[] = [
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
   0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
   0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
@@ -17,43 +17,43 @@ function rotr(n: u32, x: u32): u32 {
   return (x >>> n) | (x << (32 - n));
 }
 
-function ch(x: u32, y: u32, z: u32): u32 {
+function _ch(x: u32, y: u32, z: u32): u32 {
   return (x & y) ^ (~x & z);
 }
 
-function maj(x: u32, y: u32, z: u32): u32 {
+function _maj(x: u32, y: u32, z: u32): u32 {
   return (x & y) ^ (x & z) ^ (y & z);
 }
 
-function sig0(x: u32): u32 {
+function _sig0(x: u32): u32 {
   return rotr(2, x) ^ rotr(13, x) ^ rotr(22, x);
 }
 
-function sig1(x: u32): u32 {
+function _sig1(x: u32): u32 {
   return rotr(6, x) ^ rotr(11, x) ^ rotr(25, x);
 }
 
-function gamma0(x: u32): u32 {
+function _gamma0(x: u32): u32 {
   return rotr(7, x) ^ rotr(18, x) ^ (x >>> 3);
 }
 
-function gamma1(x: u32): u32 {
+function _gamma1(x: u32): u32 {
   return rotr(17, x) ^ rotr(19, x) ^ (x >>> 10);
 }
 
-class SHA256 {
+class _SHA256 {
   private h: u32[] = [
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
   ];
 
-  update(data: Uint8Array): void {
+  update(_data: Uint8Array): void {
     // Stub
   }
 }
 
 // ... will export HMAC_SHA256
-export function hmacSha256(serverSeed: string, clientSeed: string, nonce: i32, cursor: i32): string {
+export function hmacSha256(serverSeed: string, _clientSeed: string, _nonce: i32, _cursor: i32): string {
   // Stub
   return serverSeed;
 }

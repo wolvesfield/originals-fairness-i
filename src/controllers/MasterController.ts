@@ -307,7 +307,7 @@ export class MasterController {
     // P(all k target tiles safe) = C(totalCells-mineCount, k) / C(totalCells, k)
     // This is the TRUE probability without replacement
     const k = targetPattern.length;
-    let confidence = 0.9135; // User requested exact 91.35% win rate baseline
+    const confidence = 0.9135; // User requested exact 91.35% win rate baseline
 
     const hedgeFactor = this.hedge.calculateHedgeFactor(1);
     const alloc = this.allocation.calculateOptimalAllocation(confidence, 2.0, bankroll) * hedgeFactor;
@@ -382,7 +382,7 @@ export class MasterController {
     });
 
     // ── Mode 3: Nonce Context ──
-    const nonceAnalysis = this.analyzeNoncePatterns(nonce, mineCount, totalCells);
+    const nonceAnalysis = this.analyzeNoncePatterns(nonce);
     results.push({
       name: 'Nonce Analysis',
       confidence: perTileSafe,
@@ -449,13 +449,12 @@ export class MasterController {
   }
 
   private analyzeNoncePatterns(
-    nonce: number, mineCount: number, totalCells: number
+    nonce: number
   ): { confidence: number; description: string; details: Record<string, any> } {
     // Analyze nonce for common patterns
     const isPrime = this.isPrime(nonce);
     const isFibonacci = this.isFibonacci(nonce);
     const isPowerOf2 = nonce > 0 && (nonce & (nonce - 1)) === 0;
-    const mod100 = nonce % 100;
     const isRoundNumber = nonce > 0 && nonce % 10 === 0;
 
     let patternScore = 0;
@@ -608,7 +607,7 @@ export class MasterController {
     mineCount: number = 3,
     totalCells: number = 25,
     topN: number = 3,
-    platform?: 'stake' | 'roobet'
+    _platform?: 'stake' | 'roobet'
   ): ApexScanResult {
     const allResults: ApexGoldenPathOption[] = [];
 
