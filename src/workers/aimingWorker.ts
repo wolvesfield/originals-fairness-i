@@ -185,27 +185,63 @@ function generateKenoNumbers(
   serverSeed: string, clientSeed: string, nonce: number,
   count: number, maxNum: number
 ): number[] {
-  const drawn = new Set<number>();
   let cursor = 0;
+  let drawnCount = 0;
 
-  while (drawn.size < count) {
+  const isDrawn: boolean[] = new Array(maxNum + 1).fill(false);
+  const drawn: number[] = new Array(count);
+
+  while (drawnCount < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
+
     const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
+    if (!isDrawn[num]) {
+      isDrawn[num] = true;
+      drawn[drawnCount] = num;
+      drawnCount++;
+    }
   }
 
-  return Array.from(drawn);
+  return drawn.sort((a, b) => a - b);
 }
 
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  let cursor = 0;
+  let drawnCount = 0;
+  let hitCount = 0;
+
+  const isDrawn: boolean[] = new Array(maxNum + 1).fill(false);
+  const isSelected: boolean[] = new Array(maxNum + 1).fill(false);
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    isSelected[selectedNumbers[i]] = true;
+  }
+
+  while (drawnCount < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+
+    if (!isDrawn[num]) {
+      isDrawn[num] = true;
+      drawnCount++;
+
+      if (isSelected[num]) {
+         hitCount++;
+         if (hitCount >= minHits) return true;
+      }
+    }
+
+    // Early exit if it's impossible to reach minHits with the remaining unique draws
+    if (hitCount + (drawCount - drawnCount) < minHits) {
+      return false;
+    }
+  }
+
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
