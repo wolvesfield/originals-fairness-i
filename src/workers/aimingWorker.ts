@@ -202,10 +202,34 @@ function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  const drawn = new Array(maxNum + 1).fill(false);
+  let cursor = 0;
+  let found = 0;
+  let hits = 0;
+
+  const isSelected = new Array(maxNum + 1).fill(false);
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    isSelected[selectedNumbers[i]] = true;
+  }
+
+  while (found < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+
+    if (!drawn[num]) {
+      drawn[num] = true;
+      found++;
+
+      if (isSelected[num]) {
+        hits++;
+        if (hits >= minHits) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
