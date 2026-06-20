@@ -98,30 +98,34 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
+// ⚡ Bolt: Cache HMAC instance to avoid repeated allocations in tight loops.
+// Using a single cached instance to prevent memory leaks if many seeds are scanned over time.
+let cachedSeed: string | null = null;
+let cachedHmac: ReturnType<typeof CryptoJS.algo.HMAC.create> | null = null;
 
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
+function getHmac(serverSeed: string) {
+  if (serverSeed !== cachedSeed || !cachedHmac) {
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    cachedSeed = serverSeed;
+  }
+  return cachedHmac;
 }
 
 /**
  * Generate Nth deterministic float for a given round.
+ * ⚡ Bolt: Uses direct .words array access to avoid expensive hex string
+ * conversion (.toString) and substring/parseInt operations.
+ * First 32-bit word >>> 0 gives an unsigned int equivalent to first 8 hex chars.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  const hmac = getHmac(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  // (hash.words[0] >>> 0) is equivalent to parseInt(hash.toString(Hex).slice(0,8), 16)
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,9 +221,22 @@ function validateCrashState(
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  // ⚡ Bolt: Reuse the cached HMAC instance instead of allocating a new one
+  const hmac = getHmac(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  // ⚡ Bolt: Construct the 52-bit integer directly from the .words array.
+  // The first 13 hex characters represent 52 bits.
+  // This avoids .toString(Hex), .slice, and parseInt allocations.
+  const w0 = hash.words[0] >>> 0; // Top 32 bits
+  const w1 = hash.words[1] >>> 0; // Next 32 bits
+
+  // Combine all 32 bits of w0 and top 20 bits of w1 (w1 >>> 12)
+  // 2^20 = 1048576
+  const h = w0 * 1048576 + (w1 >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;

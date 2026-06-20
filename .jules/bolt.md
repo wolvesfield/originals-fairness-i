@@ -1,0 +1,3 @@
+## 2024-05-18 - CryptoJS HMAC Performance
+**Learning:** In hot loops, repeatedly invoking `CryptoJS.HmacSHA256(msg, key).toString(CryptoJS.enc.Hex)` forces allocations of new HMAC instances and strings, severely hitting performance. Accessing hash words directly (e.g. `(hash.words[0] >>> 0) / 4294967296`) avoids expensive `.slice()`, `.toString()`, and `parseInt()`.
+**Action:** When working with CryptoJS in hot paths (like brute-forcing nonces in workers), instantiate HMAC via `CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, key)` once, cache it, and reuse it using `.reset()` and `.update()`. Access results natively through `.words` via bitwise operations.
