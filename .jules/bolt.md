@@ -1,0 +1,3 @@
+## 2023-10-24 - Cryptographic Hot Path Optimization
+**Learning:** Found a significant bottleneck in parsing CryptoJS hex strings for float generation and crash calculations during worker simulations. The traditional approach involved generating hex digests and slicing/parsing them (`parseInt`).
+**Action:** Optimize cryptographic synchronous hot paths by caching the HMAC instance via `CryptoJS.algo.HMAC.create()` for repeated operations with the same seed, and extract deterministic floats/integers using bitwise shifts directly from the resulting internal `words` array (e.g., `hash.words[0] >>> 0`). This reduces expensive garbage collection strings in tight loops while preserving exact determinism.
