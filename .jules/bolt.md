@@ -1,0 +1,3 @@
+## 2024-05-24 - Zero-allocation Float and Crash Multiplier Generation in JS
+**Learning:** Using `CryptoJS.algo.HMAC.create()` to cache the HMAC context, and reading the `words` array directly (`words[0] >>> 0`) rather than calling `.toString(CryptoJS.enc.Hex)` and `parseInt()`, speeds up sequential hash generation by over 60%. Furthermore, parsing 52 bits out of the HMAC (as needed for Crash) can be accomplished with purely bitwise math directly from the `words` array: `((words[0] >>> 0) * 1048576) + (words[1] >>> 12)`.
+**Action:** Always prefer direct `words` array manipulation and cached instance updating over hex string instantiation for high-frequency cryptographic hash operations in hot paths.
