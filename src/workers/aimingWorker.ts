@@ -45,6 +45,15 @@ self.onmessage = (event: MessageEvent) => {
       progress = new Int32Array(progressBuffer);
     }
 
+    let targetMapMines: boolean[] | undefined;
+    if (gameType === 'MINES') {
+      const totalCells = gameConfig.totalCells ?? 25;
+      targetMapMines = new Array(totalCells).fill(false);
+      for (let i = 0; i < targetPattern.length; i++) {
+        targetMapMines[targetPattern[i]] = true;
+      }
+    }
+
     for (let nonce = startNonce; nonce <= endNonce; nonce++) {
       // Check if another worker already found a result (kill-switch via Atomics)
       if (progress && Atomics.load(progress, 1) === 1) {
@@ -58,7 +67,7 @@ self.onmessage = (event: MessageEvent) => {
         case 'MINES': {
           const mineCount = gameConfig.mineCount ?? 3;
           const totalCells = gameConfig.totalCells ?? 25;
-          isGold = validateMinesState(serverSeed, clientSeed, nonce, targetPattern, mineCount, totalCells);
+          isGold = validateMinesState(serverSeed, clientSeed, nonce, targetPattern, mineCount, totalCells, targetMapMines);
           break;
         }
         case 'KENO': {
@@ -136,14 +145,17 @@ function generateMinePositions(
   serverSeed: string, clientSeed: string, nonce: number,
   mineCount: number, totalCells: number
 ): number[] {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  const cells: number[] = new Array(totalCells);
+  for (let i = 0; i < totalCells; i++) cells[i] = i;
   let cursor = 0;
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
+    const temp = cells[i];
+    cells[i] = cells[j];
+    cells[j] = temp;
   }
 
   return cells.slice(totalCells - mineCount);
@@ -156,20 +168,29 @@ function generateMinePositions(
  */
 function validateMinesState(
   serverSeed: string, clientSeed: string, nonce: number,
-  targetPattern: number[], mineCount: number, totalCells: number
+  targetPattern: number[], mineCount: number, totalCells: number,
+  targetMapMines?: boolean[]
 ): boolean {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  const cells: number[] = new Array(totalCells);
+  for (let i = 0; i < totalCells; i++) cells[i] = i;
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
+
+  const map = targetMapMines || (() => {
+    const m = new Array(totalCells).fill(false);
+    for (let i = 0; i < targetPattern.length; i++) m[targetPattern[i]] = true;
+    return m;
+  })();
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
+    const temp = cells[i];
+    cells[i] = cells[j];
+    cells[j] = temp;
 
     // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
+    if (map[cells[i]]) {
       return false;
     }
   }
@@ -185,27 +206,49 @@ function generateKenoNumbers(
   serverSeed: string, clientSeed: string, nonce: number,
   count: number, maxNum: number
 ): number[] {
-  const drawn = new Set<number>();
+  const drawnMap = new Array(maxNum + 1).fill(false);
+  const drawnArr = new Array(count);
   let cursor = 0;
+  let added = 0;
 
-  while (drawn.size < count) {
+  while (added < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
+    if (!drawnMap[num]) {
+      drawnMap[num] = true;
+      drawnArr[added++] = num;
+    }
   }
 
-  return Array.from(drawn);
+  return drawnArr.sort((a, b) => a - b);
 }
 
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  const drawnMap = new Array(maxNum + 1).fill(false);
+  let cursor = 0;
+  let added = 0;
+
+  while (added < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+    if (!drawnMap[num]) {
+      drawnMap[num] = true;
+      added++;
+    }
+  }
+
+  let hits = 0;
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    if (drawnMap[selectedNumbers[i]]) {
+      hits++;
+    }
+  }
+  return hits >= minHits;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
