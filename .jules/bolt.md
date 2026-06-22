@@ -1,0 +1,3 @@
+## 2025-02-23 - Web Worker Performance & Garbage Collection with Hot Loop Iterations
+**Learning:** Instantiating `Set` objects dynamically inside hot loops within Web Workers (such as brute force scanning) incurs substantial garbage collection (GC) overhead and runtime latency due to heap memory allocations. Using `Array.from` has similar severe performance penalties due to iterating an array-like object and re-allocating.
+**Action:** Always prefer using pre-allocated native array primitives. For mathematical tracking of collisions (like Keno selections), allocate a fixed-size array mapping up to the max number bound initialized with booleans (`new Array(maxNum + 1).fill(false)`). When extracting indices, loop manually instead of using `Array.from`.

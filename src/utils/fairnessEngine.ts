@@ -105,7 +105,8 @@ export function generateMinePositions(
     return mines.sort((a, b) => a - b)
   } else {
     // Stake uses Fisher-Yates
-    const cells: number[] = Array.from({ length: totalCells }, (_, i) => i)
+    const cells: number[] = new Array(totalCells)
+    for (let i = 0; i < totalCells; i++) cells[i] = i
     let cursor = 0
 
     // Fisher-Yates shuffle (we only need `mineCount` iterations)
@@ -114,8 +115,10 @@ export function generateMinePositions(
       cursor++
 
       const j = Math.floor(float * (i + 1))   // random index in [0, i]
-        // Swap
-        ;[cells[i], cells[j]] = [cells[j], cells[i]]
+      // Swap
+      const temp = cells[i]
+      cells[i] = cells[j]
+      cells[j] = temp
     }
 
     // The last `mineCount` positions in the array are the mines
@@ -141,16 +144,21 @@ export function generateKenoNumbers(
   count: number = 10,
   maxNum: number = 40
 ): number[] {
-  const drawn = new Set<number>()
+  const drawnMap = new Array(maxNum + 1).fill(false)
+  const drawnArr = new Array(count)
   let cursor = 0
+  let added = 0
 
-  while (drawn.size < count) {
+  while (added < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor)
     cursor++
 
     const num = Math.floor(float * maxNum) + 1   // 1 .. maxNum
-    drawn.add(num)                                // Set ignores duplicates
+    if (!drawnMap[num]) {
+      drawnMap[num] = true
+      drawnArr[added++] = num
+    }
   }
 
-  return Array.from(drawn).sort((a, b) => a - b)
+  return drawnArr.sort((a, b) => a - b)
 }
