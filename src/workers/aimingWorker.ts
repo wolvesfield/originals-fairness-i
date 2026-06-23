@@ -116,12 +116,30 @@ function hashToFloat(hash: string): number {
   return int / 4294967296;
 }
 
+// Cache HMAC instance for performance in hot paths
+let cachedHmac: any = null;
+let lastSeed: string | null = null;
+
 /**
  * Generate Nth deterministic float for a given round.
+ * Optimized with cached HMAC and direct bitwise extraction to prevent
+ * string allocation bottlenecks.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  if (serverSeed !== lastSeed || !cachedHmac) {
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastSeed = serverSeed;
+  }
+
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+
+  cachedHmac.reset();
+  cachedHmac.update(message);
+  const hash = cachedHmac.finalize();
+
+  // Extract first 4 bytes as an unsigned 32-bit integer directly from the words array
+  const w0 = hash.words[0] >>> 0;
+  return w0 / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -158,18 +176,27 @@ function validateMinesState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetPattern: number[], mineCount: number, totalCells: number
 ): boolean {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  // Use Uint8Array instead of Array.from to prevent GC overhead in hot loops
+  const cells = new Uint8Array(totalCells);
+  for (let i = 0; i < totalCells; i++) cells[i] = i;
+
+  const targetSet = new Uint8Array(totalCells);
+  for (let i = 0; i < targetPattern.length; i++) targetSet[targetPattern[i]] = 1;
+
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
+
+    // Swap
+    const temp = cells[i];
+    cells[i] = cells[j];
+    cells[j] = temp;
 
     // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
+    if (targetSet[cells[i]] === 1) {
       return false;
     }
   }
@@ -185,27 +212,60 @@ function generateKenoNumbers(
   serverSeed: string, clientSeed: string, nonce: number,
   count: number, maxNum: number
 ): number[] {
-  const drawn = new Set<number>();
+  // Use a pre-allocated typed array for collision detection mapping instead of a Set
+  const drawn = new Uint8Array(maxNum + 1);
+  const result: number[] = new Array(count);
+  let hits = 0;
   let cursor = 0;
 
-  while (drawn.size < count) {
+  while (hits < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
+    if (drawn[num] === 0) {
+      drawn[num] = 1;
+      result[hits++] = num;
+    }
   }
 
-  return Array.from(drawn);
+  return result.sort((a, b) => a - b);
 }
 
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  // Fast path for brute-forcing Keno hits using direct typed array lookups
+  // Avoids allocating the full result array and Set mapping in hot paths
+  const drawn = new Uint8Array(maxNum + 1);
+  const selectedSet = new Uint8Array(maxNum + 1);
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    selectedSet[selectedNumbers[i]] = 1;
+  }
+
+  let hits = 0;
+  let matches = 0;
+  let cursor = 0;
+
+  while (hits < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+
+    const num = Math.floor(float * maxNum) + 1;
+    if (drawn[num] === 0) {
+      drawn[num] = 1;
+      hits++;
+
+      if (selectedSet[num] === 1) {
+        matches++;
+        if (matches >= minHits) {
+          return true; // Early exit on reaching required hits
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,10 +276,21 @@ function validateCrashState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
-  const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  if (serverSeed !== lastSeed || !cachedHmac) {
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastSeed = serverSeed;
+  }
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  const message = `${clientSeed}:${nonce}`;
+
+  cachedHmac.reset();
+  cachedHmac.update(message);
+  const hash = cachedHmac.finalize();
+
+  // First 13 hex chars = 52 bits. Extract this directly from the 32-bit words.
+  const w0 = hash.words[0] >>> 0;
+  const w1 = hash.words[1] >>> 0;
+  const h = w0 * 1048576 + (w1 >>> 12); // 1048576 = 2^20
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
