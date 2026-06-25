@@ -116,12 +116,25 @@ function hashToFloat(hash: string): number {
   return int / 4294967296;
 }
 
+let cachedFloatHmac: CryptoJS.lib.Hasher | null = null;
+let cachedFloatKey = "";
+
 /**
  * Generate Nth deterministic float for a given round.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+
+  if (serverSeed !== cachedFloatKey || !cachedFloatHmac) {
+    cachedFloatHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    cachedFloatKey = serverSeed;
+  } else {
+    cachedFloatHmac.reset();
+  }
+
+  const hash = cachedFloatHmac.update(message).finalize();
+  const int = hash.words[0] >>> 0;
+  return int / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -185,41 +198,84 @@ function generateKenoNumbers(
   serverSeed: string, clientSeed: string, nonce: number,
   count: number, maxNum: number
 ): number[] {
-  const drawn = new Set<number>();
+  const drawn = new Uint8Array(maxNum + 1);
+  const result: number[] = [];
   let cursor = 0;
+  let found = 0;
 
-  while (drawn.size < count) {
+  while (found < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
+    if (drawn[num] === 0) {
+      drawn[num] = 1;
+      result.push(num);
+      found++;
+    }
   }
 
-  return Array.from(drawn);
+  return result.sort((a, b) => a - b);
 }
 
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  const drawn = new Uint8Array(maxNum + 1);
+  let cursor = 0;
+  let found = 0;
+  let hits = 0;
+
+  const targetLookup = new Uint8Array(maxNum + 1);
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    targetLookup[selectedNumbers[i]] = 1;
+  }
+
+  while (found < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+
+    if (drawn[num] === 0) {
+      drawn[num] = 1;
+      found++;
+      if (targetLookup[num] === 1) {
+        hits++;
+        if (hits >= minHits) {
+          return true; // Early exit
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Crash — industry standard (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
+let cachedCrashHmac: CryptoJS.lib.Hasher | null = null;
+let cachedCrashKey = "";
+
 function validateCrashState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  if (serverSeed !== cachedCrashKey || !cachedCrashHmac) {
+    cachedCrashHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    cachedCrashKey = serverSeed;
+  } else {
+    cachedCrashHmac.reset();
+  }
+
+  const hash = cachedCrashHmac.update(message).finalize();
+
+  const w0 = hash.words[0] >>> 0;
+  const w1 = hash.words[1] >>> 0;
+  const h = w0 * 1048576 + (w1 >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
