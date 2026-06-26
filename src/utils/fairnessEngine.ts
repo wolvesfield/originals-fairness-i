@@ -5,9 +5,17 @@ import CryptoJS from 'crypto-js'
 // Produces a value in [0, 1) – never uses Math.random().
 // ---------------------------------------------------------------------------
 
+// Single-value caches for HMAC instances to avoid GC pressure
+let lastFloatSeed = '';
+let lastFloatHmac: any = null;
+
+let lastCrashSeed = '';
+let lastCrashHmac: any = null;
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  * Returns the full hex digest (64 hex chars / 256 bits).
+ * @deprecated Use generateFloat directly for performance. Kept for backward compatibility.
  */
 export function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): string {
   const message = platform === 'roobet'
@@ -19,6 +27,7 @@ export function hmacSha256(serverSeed: string, clientSeed: string, nonce: number
 /**
  * Convert the first 4 bytes (8 hex chars) of a hex hash to a float in [0, 1).
  * int(first_8_hex) / 2^32
+ * @deprecated Use generateFloat directly for performance. Kept for backward compatibility.
  */
 export function hashToFloat(hash: string): number {
   const slice = hash.slice(0, 8)
@@ -28,10 +37,26 @@ export function hashToFloat(hash: string): number {
 
 /**
  * Convenience: generate the Nth deterministic float for a given round.
+ * Highly optimized to use cached HMAC instance and bitwise extraction.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  if (serverSeed !== lastFloatSeed || !lastFloatHmac) {
+    lastFloatSeed = serverSeed;
+    lastFloatHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    lastFloatHmac.reset();
+  }
+
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`;
+
+  lastFloatHmac.update(message);
+  const hashObj = lastFloatHmac.finalize();
+
+  // Extract first 32 bits natively
+  const word0 = hashObj.words[0] >>> 0;
+  return word0 / 4294967296;
 }
 
 // ---------------------------------------------------------------------------
@@ -40,28 +65,39 @@ export function generateFloat(serverSeed: string, clientSeed: string, nonce: num
 
 /**
  * Crash multiplier derived from HMAC-SHA256.
+ * Highly optimized to use cached HMAC instance and bitwise extraction.
  *
  * Algorithm (industry standard):
- *   1. hash = HMAC_SHA256(serverSeed, clientSeed)
- *      – We include nonce in clientSeed component as `clientSeed:nonce`.
+ *   1. hash = HMAC_SHA256(serverSeed, clientSeed:nonce)
  *   2. h = first 13 hex characters of hash, parsed as integer.
  *   3. if h % 33 === 0 → result = 1  (the "instant crash" / house edge).
  *   4. Otherwise:  result = floor( (100 * 2^52 - h) / (2^52 - h) ) / 100
  *   5. Return max(1, result) to guarantee minimum 1.00x.
  */
 export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonce: number): number {
-  const message = `${clientSeed}:${nonce}`
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+  if (serverSeed !== lastCrashSeed || !lastCrashHmac) {
+    lastCrashSeed = serverSeed;
+    lastCrashHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    lastCrashHmac.reset();
+  }
 
-  // First 13 hex chars → integer (fits within JS safe integer range: 16^13 ≈ 4.5e15 < 2^53)
-  const h = parseInt(hash.slice(0, 13), 16)
+  const message = `${clientSeed}:${nonce}`
+  lastCrashHmac.update(message);
+  const hashObj = lastCrashHmac.finalize();
+
+  const w0 = hashObj.words[0] >>> 0;
+  const w1 = hashObj.words[1] >>> 0;
+
+  // Combine into 52 bits: w0 provides 32 bits, w1 provides top 20 bits
+  const h = w0 * 1048576 + (w1 >>> 12);
 
   // House edge: ~3 % of rounds instant-crash at 1.00x
   if (h % 33 === 0) {
     return 1
   }
 
-  const TWO_52 = Math.pow(2, 52)
+  const TWO_52 = 4503599627370496 // Math.pow(2, 52)
   const result = Math.floor((100 * TWO_52 - h) / (TWO_52 - h)) / 100
 
   return Math.max(1, result)
