@@ -98,8 +98,16 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Single-value caches for HMAC instances to avoid GC pressure
+let lastFloatSeed = '';
+let lastFloatHmac: any = null;
+
+let lastCrashSeed = '';
+let lastCrashHmac: any = null;
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
+ * @deprecated Use generateFloat directly
  */
 function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
   const message = `${clientSeed}:${nonce}:${cursor}`;
@@ -109,6 +117,7 @@ function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, curso
 /**
  * Convert first 4 bytes (8 hex chars) to float in [0, 1).
  * int(first_8_hex) / 2^32
+ * @deprecated Use generateFloat directly
  */
 function hashToFloat(hash: string): number {
   const slice = hash.slice(0, 8);
@@ -120,8 +129,21 @@ function hashToFloat(hash: string): number {
  * Generate Nth deterministic float for a given round.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  if (serverSeed !== lastFloatSeed || !lastFloatHmac) {
+    lastFloatSeed = serverSeed;
+    lastFloatHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    lastFloatHmac.reset();
+  }
+
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+
+  lastFloatHmac.update(message);
+  const hashObj = lastFloatHmac.finalize();
+
+  // Extract first 32 bits natively
+  const word0 = hashObj.words[0] >>> 0;
+  return word0 / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,15 +238,27 @@ function validateCrashState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
-  const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  if (serverSeed !== lastCrashSeed || !lastCrashHmac) {
+    lastCrashSeed = serverSeed;
+    lastCrashHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  } else {
+    lastCrashHmac.reset();
+  }
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  const message = `${clientSeed}:${nonce}`;
+  lastCrashHmac.update(message);
+  const hashObj = lastCrashHmac.finalize();
+
+  const w0 = hashObj.words[0] >>> 0;
+  const w1 = hashObj.words[1] >>> 0;
+
+  // Combine into 52 bits: w0 provides 32 bits, w1 provides top 20 bits
+  const h = w0 * 1048576 + (w1 >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
 
-  const TWO_52 = Math.pow(2, 52);
+  const TWO_52 = 4503599627370496; // Math.pow(2, 52)
   const multiplier = Math.max(1, Math.floor((100 * TWO_52 - h) / (TWO_52 - h)) / 100);
   return multiplier >= targetMultiplier;
 }

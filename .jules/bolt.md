@@ -1,0 +1,3 @@
+## 2024-03-XX - [Fast HMAC for deterministic floats]
+**Learning:** `CryptoJS.HmacSHA256` creates and destroys an HMAC object every single time, which adds enormous garbage collection pressure and CPU overhead in hot loops like Monte Carlo simulations or worker brute-forcing. Stringifying the hash and slicing it `toString(CryptoJS.enc.Hex)` just to extract the first few bytes as a float is also a heavy string operation.
+**Action:** Use `CryptoJS.algo.HMAC.create()` to cache an HMAC instance per server seed, and call `.reset()` and `.update()`. Instead of string hex conversions, extract the first 32 bits from the internal `hashObj.words[0] >>> 0` array.
