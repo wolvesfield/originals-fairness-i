@@ -98,56 +98,37 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
+// Single-value cache to avoid re-instantiating HMAC object in hot loops
+let lastSeed: string | null = null;
+let lastHmac: any = null;
 
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
+function getHmac(seed: string) {
+  if (seed !== lastSeed || !lastHmac) {
+    lastSeed = seed;
+    lastHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, seed);
+  }
+  return lastHmac;
 }
 
 /**
  * Generate Nth deterministic float for a given round.
+ * Optimized hot-path using bitwise operations.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  const hmac = getHmac(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  // Directly access the first 32 bits (8 hex chars)
+  const intVal = hash.words[0] >>> 0;
+  return intVal / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mines — Fisher-Yates shuffle (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Returns mineCount unique cell indices using Fisher-Yates shuffle.
- * Consumes one float per swap via incrementing cursor.
- */
-function generateMinePositions(
-  serverSeed: string, clientSeed: string, nonce: number,
-  mineCount: number, totalCells: number
-): number[] {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
-  let cursor = 0;
-
-  for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
-    cursor++;
-    const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
-  }
-
-  return cells.slice(totalCells - mineCount);
-}
 
 /**
  * Truncated search: early-exit if any target tile is already in a mine swap
@@ -217,9 +198,15 @@ function validateCrashState(
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = getHmac(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize();
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  // Extract first 13 hex characters (52 bits) as an integer
+  const w0 = hash.words[0] >>> 0;
+  const w1 = hash.words[1] >>> 0;
+  const h = w0 * 1048576 + (w1 >>> 12); // 1048576 = 2^20
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
