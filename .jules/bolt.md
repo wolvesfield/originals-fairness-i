@@ -1,0 +1,3 @@
+## 2025-02-18 - Optimized HMAC calculation for pseudo-random number generation
+**Learning:** In highly repetitive hot loops (e.g. Monte Carlo simulations or worker brute-force scans) calculating deterministic floats and crash points, repeatedly allocating new `CryptoJS.HmacSHA256` instances and converting hashes to hex strings (`.toString(CryptoJS.enc.Hex)`) just to parse back portions as integers incurs significant overhead.
+**Action:** When optimizing synchronous hot paths using `crypto-js`, cache the HMAC instance via `CryptoJS.algo.HMAC.create` and reuse it using `.reset()` and `.update()`. Access the `words` array directly with bitwise shifts (e.g., `hash.words[0] >>> 0`) rather than converting to a hex string with `.toString(CryptoJS.enc.Hex)`.
