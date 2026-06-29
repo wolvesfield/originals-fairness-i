@@ -185,27 +185,60 @@ function generateKenoNumbers(
   serverSeed: string, clientSeed: string, nonce: number,
   count: number, maxNum: number
 ): number[] {
-  const drawn = new Set<number>();
+  // Optimize: Avoid Set allocation in hot loop
+  const drawnMap = new Uint8Array(maxNum + 1);
+  const result: number[] = [];
   let cursor = 0;
+  let drawnCount = 0;
 
-  while (drawn.size < count) {
+  while (drawnCount < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
+    if (drawnMap[num] === 0) {
+      drawnMap[num] = 1;
+      result.push(num);
+      drawnCount++;
+    }
   }
 
-  return Array.from(drawn);
+  return result;
 }
 
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  // Optimize: Inline number generation and add early exit
+  const drawnMap = new Uint8Array(maxNum + 1);
+  const targetMap = new Uint8Array(maxNum + 1);
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    targetMap[selectedNumbers[i]] = 1;
+  }
+
+  let cursor = 0;
+  let drawnCount = 0;
+  let hits = 0;
+
+  while (drawnCount < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+
+    if (drawnMap[num] === 0) {
+      drawnMap[num] = 1;
+      drawnCount++;
+
+      if (targetMap[num] === 1) {
+        hits++;
+        if (hits >= minHits) {
+          return true; // Early exit
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
