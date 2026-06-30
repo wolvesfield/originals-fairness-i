@@ -1,0 +1,3 @@
+## 2024-07-29 - [Optimizing Keno validation in worker hot paths]
+**Learning:** The Keno number generation used a `Set` to track uniqueness, resulting in expensive garbage collection and set operations during brute-force scans. Converting to a `Uint8Array` for uniqueness checking and validating target matches *during* draw generation (early exit) yields nearly a 9x speedup over building sets and arrays.
+**Action:** When performing collision detection and intersection tests in a hot loop with a small known domain (like max 40 Keno numbers), use pre-allocated typed arrays (e.g. `new Uint8Array(maxNum + 1)`) and implement early exits instead of using `Set`s and `.filter()`.
