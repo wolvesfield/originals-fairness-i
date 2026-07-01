@@ -1,0 +1,3 @@
+## 2024-05-18 - Uint8Array Over Set for Hot Loop Performance
+**Learning:** In highly repetitive Web Worker brute-forcing operations (like millions of permutations for Keno or Mines), instantiating `Set` objects dynamically causes a severe performance penalty and massive GC overhead. A pre-allocated `Uint8Array` as a map/cache operates an order of magnitude faster.
+**Action:** When working on hot synchronous loops, always replace abstractions like `.includes()` or `Set` instantiations with pre-allocated typed arrays (e.g. `Uint8Array`) acting as lookup maps and hoist map generation outside the main loop.

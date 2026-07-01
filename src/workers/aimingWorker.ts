@@ -30,6 +30,15 @@ interface ScanPayload {
   progressBuffer?: SharedArrayBuffer; // Int32Array: [0]=scanned, [1]=found (0/1), [2]=foundNonce
 }
 
+declare global {
+  interface WorkerGlobalScope {
+    _minesTargetMap?: Uint8Array;
+    _minesCells?: Uint8Array;
+    _kenoTargetMap?: Uint8Array;
+    _kenoDrawnMap?: Uint8Array;
+  }
+}
+
 self.onmessage = (event: MessageEvent) => {
   const { type, payload } = event.data as { type: string; payload: ScanPayload };
 
@@ -58,14 +67,42 @@ self.onmessage = (event: MessageEvent) => {
         case 'MINES': {
           const mineCount = gameConfig.mineCount ?? 3;
           const totalCells = gameConfig.totalCells ?? 25;
-          isGold = validateMinesState(serverSeed, clientSeed, nonce, targetPattern, mineCount, totalCells);
+
+          if (!self._minesTargetMap || self._minesTargetMap.length < totalCells) {
+             self._minesTargetMap = new Uint8Array(totalCells);
+          } else {
+             self._minesTargetMap.fill(0);
+          }
+          for (let i = 0; i < targetPattern.length; i++) {
+             if (targetPattern[i] < totalCells) {
+                 self._minesTargetMap[targetPattern[i]] = 1;
+             }
+          }
+
+          isGold = validateMinesState(serverSeed, clientSeed, nonce, self._minesTargetMap, mineCount, totalCells);
           break;
         }
         case 'KENO': {
           const drawCount = gameConfig.drawCount ?? 20;
           const maxNum = gameConfig.maxNum ?? 40;
           const minHits = gameConfig.minKenoHits ?? Math.ceil(targetPattern.length * 0.5);
-          isGold = validateKenoState(serverSeed, clientSeed, nonce, targetPattern, drawCount, maxNum, minHits);
+
+          if (!self._kenoTargetMap || self._kenoTargetMap.length < maxNum + 1) {
+              self._kenoTargetMap = new Uint8Array(maxNum + 1);
+          } else {
+              self._kenoTargetMap.fill(0);
+          }
+          for (let i = 0; i < targetPattern.length; i++) {
+              if (targetPattern[i] <= maxNum) {
+                  self._kenoTargetMap[targetPattern[i]] = 1;
+              }
+          }
+
+          if (!self._kenoDrawnMap || self._kenoDrawnMap.length < maxNum + 1) {
+              self._kenoDrawnMap = new Uint8Array(maxNum + 1);
+          }
+
+          isGold = validateKenoState(serverSeed, clientSeed, nonce, self._kenoTargetMap, drawCount, maxNum, minHits, self._kenoDrawnMap);
           break;
         }
         case 'CRASH': {
@@ -156,20 +193,27 @@ function generateMinePositions(
  */
 function validateMinesState(
   serverSeed: string, clientSeed: string, nonce: number,
-  targetPattern: number[], mineCount: number, totalCells: number
+  targetMap: Uint8Array, mineCount: number, totalCells: number
 ): boolean {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  if (!self._minesCells || self._minesCells.length < totalCells) {
+     self._minesCells = new Uint8Array(totalCells);
+  }
+  const cells = self._minesCells;
+  for (let i = 0; i < totalCells; i++) cells[i] = i;
+
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
+
+    const temp = cells[i];
+    cells[i] = cells[j];
+    cells[j] = temp;
 
     // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
+    if (targetMap[cells[i]] === 1) {
       return false;
     }
   }
@@ -185,27 +229,51 @@ function generateKenoNumbers(
   serverSeed: string, clientSeed: string, nonce: number,
   count: number, maxNum: number
 ): number[] {
-  const drawn = new Set<number>();
+  const drawnMap = new Uint8Array(maxNum + 1);
+  const drawnList: number[] = [];
   let cursor = 0;
+  let drawnCount = 0;
 
-  while (drawn.size < count) {
+  while (drawnCount < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
+    if (drawnMap[num] === 0) {
+      drawnMap[num] = 1;
+      drawnList.push(num);
+      drawnCount++;
+    }
   }
 
-  return Array.from(drawn);
+  return drawnList;
 }
 
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
-  selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
+  targetMap: Uint8Array, drawCount: number, maxNum: number, minHits: number,
+  drawnMap: Uint8Array
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  drawnMap.fill(0);
+  let cursor = 0;
+  let drawnCount = 0;
+  let hits = 0;
+
+  while (drawnCount < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+
+    if (drawnMap[num] === 0) {
+      drawnMap[num] = 1;
+      drawnCount++;
+      if (targetMap[num] === 1) {
+        hits++;
+        if (hits >= minHits) return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
