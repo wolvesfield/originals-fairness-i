@@ -5,6 +5,9 @@ import CryptoJS from 'crypto-js'
 // Produces a value in [0, 1) – never uses Math.random().
 // ---------------------------------------------------------------------------
 
+let lastSeed = '';
+let hmacInstance: any = null;
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  * Returns the full hex digest (64 hex chars / 256 bits).
@@ -30,13 +33,28 @@ export function hashToFloat(hash: string): number {
  * Convenience: generate the Nth deterministic float for a given round.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  if (serverSeed !== lastSeed || !hmacInstance) {
+    hmacInstance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastSeed = serverSeed;
+  } else {
+    hmacInstance.reset();
+  }
+
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  hmacInstance.update(message);
+  const hash = hmacInstance.finalize();
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ---------------------------------------------------------------------------
 // Crash – provably fair multiplier
 // ---------------------------------------------------------------------------
+
+let lastCrashSeed = '';
+let hmacCrashInstance: any = null;
 
 /**
  * Crash multiplier derived from HMAC-SHA256.
@@ -50,11 +68,19 @@ export function generateFloat(serverSeed: string, clientSeed: string, nonce: num
  *   5. Return max(1, result) to guarantee minimum 1.00x.
  */
 export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonce: number): number {
-  const message = `${clientSeed}:${nonce}`
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+  if (serverSeed !== lastCrashSeed || !hmacCrashInstance) {
+    hmacCrashInstance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastCrashSeed = serverSeed;
+  } else {
+    hmacCrashInstance.reset();
+  }
+  const message = `${clientSeed}:${nonce}`;
+  hmacCrashInstance.update(message);
+  const hash = hmacCrashInstance.finalize();
 
-  // First 13 hex chars → integer (fits within JS safe integer range: 16^13 ≈ 4.5e15 < 2^53)
-  const h = parseInt(hash.slice(0, 13), 16)
+  const w0 = hash.words[0] >>> 0;
+  const w1 = hash.words[1] >>> 0;
+  const h = w0 * 1048576 + (w1 >>> 12); // w0 * 2^20 + (w1 >>> 12)
 
   // House edge: ~3 % of rounds instant-crash at 1.00x
   if (h % 33 === 0) {
@@ -70,6 +96,8 @@ export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonc
 // ---------------------------------------------------------------------------
 // Mines – Fisher-Yates shuffle
 // ---------------------------------------------------------------------------
+
+const minesCellsArray = new Uint8Array(64); // pre-allocate max reasonable totalCells
 
 /**
  * Returns an array of `mineCount` unique cell indices in [0, totalCells).
@@ -105,7 +133,9 @@ export function generateMinePositions(
     return mines.sort((a, b) => a - b)
   } else {
     // Stake uses Fisher-Yates
-    const cells: number[] = Array.from({ length: totalCells }, (_, i) => i)
+    for (let i = 0; i < totalCells; i++) {
+      minesCellsArray[i] = i;
+    }
     let cursor = 0
 
     // Fisher-Yates shuffle (we only need `mineCount` iterations)
@@ -114,12 +144,17 @@ export function generateMinePositions(
       cursor++
 
       const j = Math.floor(float * (i + 1))   // random index in [0, i]
-        // Swap
-        ;[cells[i], cells[j]] = [cells[j], cells[i]]
+      // Swap
+      const temp = minesCellsArray[i];
+      minesCellsArray[i] = minesCellsArray[j];
+      minesCellsArray[j] = temp;
     }
 
     // The last `mineCount` positions in the array are the mines
-    const mines = cells.slice(totalCells - mineCount)
+    const mines = []
+    for(let i = totalCells - mineCount; i < totalCells; i++) {
+      mines.push(minesCellsArray[i])
+    }
     return mines.sort((a, b) => a - b)
   }
 }
@@ -127,6 +162,8 @@ export function generateMinePositions(
 // ---------------------------------------------------------------------------
 // Keno – unique number selection
 // ---------------------------------------------------------------------------
+
+const kenoDrawnMap = new Uint8Array(41); // Pre-allocated array for Keno up to 40 maxNum
 
 /**
  * Draws exactly `count` unique numbers from [1, maxNum].
@@ -141,16 +178,20 @@ export function generateKenoNumbers(
   count: number = 10,
   maxNum: number = 40
 ): number[] {
-  const drawn = new Set<number>()
+  kenoDrawnMap.fill(0)
+  const drawn: number[] = []
   let cursor = 0
 
-  while (drawn.size < count) {
+  while (drawn.length < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor)
     cursor++
 
     const num = Math.floor(float * maxNum) + 1   // 1 .. maxNum
-    drawn.add(num)                                // Set ignores duplicates
+    if (kenoDrawnMap[num] === 0) {
+      kenoDrawnMap[num] = 1
+      drawn.push(num)
+    }
   }
 
-  return Array.from(drawn).sort((a, b) => a - b)
+  return drawn.sort((a, b) => a - b)
 }
