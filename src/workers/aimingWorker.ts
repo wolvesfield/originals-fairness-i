@@ -98,6 +98,9 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
+let lastSeed = '';
+let hmacInstance: any = null;
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  */
@@ -120,8 +123,17 @@ function hashToFloat(hash: string): number {
  * Generate Nth deterministic float for a given round.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  if (serverSeed !== lastSeed || !hmacInstance) {
+    hmacInstance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastSeed = serverSeed;
+  } else {
+    hmacInstance.reset();
+  }
+
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  hmacInstance.update(message);
+  const hash = hmacInstance.finalize();
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -149,6 +161,8 @@ function generateMinePositions(
   return cells.slice(totalCells - mineCount);
 }
 
+const minesCellsArray = new Uint8Array(64); // pre-allocate max reasonable totalCells for Mines
+
 /**
  * Truncated search: early-exit if any target tile is already in a mine swap
  * position BEFORE finishing all mineCount iterations. This avoids computing
@@ -158,19 +172,26 @@ function validateMinesState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetPattern: number[], mineCount: number, totalCells: number
 ): boolean {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  for (let i = 0; i < totalCells; i++) {
+    minesCellsArray[i] = i;
+  }
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
+
+    const temp = minesCellsArray[i];
+    minesCellsArray[i] = minesCellsArray[j];
+    minesCellsArray[j] = temp;
 
     // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
-      return false;
+    const cellValue = minesCellsArray[i];
+    for (let k = 0; k < targetPattern.length; k++) {
+      if (targetPattern[k] === cellValue) {
+        return false;
+      }
     }
   }
 
@@ -198,28 +219,62 @@ function generateKenoNumbers(
   return Array.from(drawn);
 }
 
+const kenoDrawnMap = new Uint8Array(41); // Pre-allocated array for Keno up to 40 maxNum
+
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  kenoDrawnMap.fill(0);
+
+  let hits = 0;
+  let draws = 0;
+  let cursor = 0;
+
+  while (draws < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+
+    if (kenoDrawnMap[num] === 0) {
+      kenoDrawnMap[num] = 1;
+      draws++;
+      for (let i = 0; i < selectedNumbers.length; i++) {
+        if (selectedNumbers[i] === num) {
+          hits++;
+          if (hits >= minHits) return true;
+          break;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Crash — industry standard (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
+let lastCrashSeed = '';
+let hmacCrashInstance: any = null;
+
 function validateCrashState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
+  if (serverSeed !== lastCrashSeed || !hmacCrashInstance) {
+    hmacCrashInstance = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastCrashSeed = serverSeed;
+  } else {
+    hmacCrashInstance.reset();
+  }
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  hmacCrashInstance.update(message);
+  const hash = hmacCrashInstance.finalize();
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  const w0 = hash.words[0] >>> 0;
+  const w1 = hash.words[1] >>> 0;
+  const h = w0 * 1048576 + (w1 >>> 12); // w0 * 2^20 + (w1 >>> 12)
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
