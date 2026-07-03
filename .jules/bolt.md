@@ -1,0 +1,3 @@
+## 2024-05-18 - CryptoJS Hot Path Optimization
+**Learning:** In synchronous hot paths like Monte Carlo brute-forcing, `CryptoJS.HmacSHA256` allocates new objects and its `toString(Hex)` is extremely slow. We can avoid string allocations by using `CryptoJS.algo.HMAC.create` to cache the hasher instance, calling `reset(serverSeed)` and `update(message)`, then directly extracting `hash.words` with bitwise shifts (`w0 >>> 0`).
+**Action:** Use cached HMAC instances and native bitwise math (e.g., `(hash.words[0] >>> 0) / 4294967296` for 32-bit floats) when replacing `parseInt(hex.slice(...), 16)` in high-frequency cryptographic logic to achieve ~3-4x speedups.
