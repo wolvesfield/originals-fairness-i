@@ -98,30 +98,24 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
+let cachedHmac: any = null;
+let cachedKey = '';
 
 /**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
-}
-
-/**
- * Generate Nth deterministic float for a given round.
+ * Generate Nth deterministic float for a given round using a cached HMAC instance.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  if (serverSeed !== cachedKey || !cachedHmac) {
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    cachedKey = serverSeed;
+  } else {
+    cachedHmac.reset();
+  }
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  cachedHmac.update(message);
+  const hash = cachedHmac.finalize();
+  const w0 = hash.words[0] >>> 0;
+  return w0 / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -132,6 +126,7 @@ function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cu
  * Returns mineCount unique cell indices using Fisher-Yates shuffle.
  * Consumes one float per swap via incrementing cursor.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function generateMinePositions(
   serverSeed: string, clientSeed: string, nonce: number,
   mineCount: number, totalCells: number
@@ -149,27 +144,38 @@ function generateMinePositions(
   return cells.slice(totalCells - mineCount);
 }
 
+// Global buffers for Mines early-exit validation
+const maxCellsBuffer = new Int32Array(100);
+const validateMinesBuffer = new Uint8Array(100);
+
 /**
  * Truncated search: early-exit if any target tile is already in a mine swap
  * position BEFORE finishing all mineCount iterations. This avoids computing
  * all mine positions when we can already tell a target tile is mined.
+ * Uses global buffers to prevent GC pressure.
  */
 function validateMinesState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetPattern: number[], mineCount: number, totalCells: number
 ): boolean {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  for (let i = 0; i < totalCells; i++) maxCellsBuffer[i] = i;
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
+
+  validateMinesBuffer.fill(0);
+  for (let i = 0; i < targetPattern.length; i++) {
+    validateMinesBuffer[targetPattern[i]] = 1;
+  }
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
 
-    // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
+    const temp = maxCellsBuffer[i];
+    maxCellsBuffer[i] = maxCellsBuffer[j];
+    maxCellsBuffer[j] = temp;
+
+    if (validateMinesBuffer[maxCellsBuffer[i]] === 1) {
       return false;
     }
   }
@@ -181,31 +187,43 @@ function validateMinesState(
 // Keno — Set-based collision avoidance (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateKenoNumbers(
-  serverSeed: string, clientSeed: string, nonce: number,
-  count: number, maxNum: number
-): number[] {
-  const drawn = new Set<number>();
-  let cursor = 0;
-
-  while (drawn.size < count) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
-    cursor++;
-    const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
-  }
-
-  return Array.from(drawn);
-}
+// Global buffer for fast Keno validation without allocating Sets
+const validateKenoBuffer = new Uint8Array(81); // Supports up to 80 maxNum
 
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  validateKenoBuffer.fill(0);
+
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    validateKenoBuffer[selectedNumbers[i]] = 2; // 2 means target tile
+  }
+
+  let cursor = 0;
+  let drawnCount = 0;
+  let hits = 0;
+
+  while (drawnCount < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+
+    const state = validateKenoBuffer[num];
+    if (state === 0) {
+      validateKenoBuffer[num] = 1;
+      drawnCount++;
+    } else if (state === 2) {
+      validateKenoBuffer[num] = 3;
+      drawnCount++;
+      hits++;
+      if (hits >= minHits) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
