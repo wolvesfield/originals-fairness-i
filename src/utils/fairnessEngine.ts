@@ -26,12 +26,34 @@ export function hashToFloat(hash: string): number {
   return int / 4294967296                   // 0 .. < 1
 }
 
+// Single-value cache to prevent HMAC instance recreation in hot loops
+let cachedHmac: any = null
+let cachedSeed: string = ''
+
 /**
  * Convenience: generate the Nth deterministic float for a given round.
+ * Optimized hot-path using cached HMAC and bitwise extraction.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  if (serverSeed !== cachedSeed || !cachedHmac) {
+    cachedSeed = serverSeed
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed)
+  } else {
+    cachedHmac.reset()
+  }
+
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  cachedHmac.update(message)
+  const hash = cachedHmac.finalize()
+
+  // Access the first 32-bit word directly (equivalent to first 8 hex chars)
+  // Shift by 0 to ensure it's treated as an unsigned 32-bit integer
+  const word = hash.words[0] >>> 0
+
+  return word / 4294967296
 }
 
 // ---------------------------------------------------------------------------
