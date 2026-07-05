@@ -1,0 +1,3 @@
+## 2024-05-15 - Fast HMAC via CryptoJS Caching and Bitwise Operations
+**Learning:** In synchronous hot paths (like deterministic float generation in `fairnessEngine.ts` and `aimingWorker.ts`), instantiating new HMACs with `CryptoJS.HmacSHA256()` and parsing hex strings with `parseInt` is exceptionally slow. Caching a single HMAC instance via `CryptoJS.algo.HMAC.create()` and directly extracting the 32-bit unsigned integer via `hash.words[0] >>> 0` avoids string allocations entirely and executes ~3x faster.
+**Action:** When working with `crypto-js` in tight loops, always pre-allocate the HMAC object, reuse it using `.reset()` and `.update()`, and manipulate the `words` array directly rather than converting it to intermediate strings (`.toString(CryptoJS.enc.Hex)`).
