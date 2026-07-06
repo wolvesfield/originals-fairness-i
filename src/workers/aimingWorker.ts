@@ -185,27 +185,66 @@ function generateKenoNumbers(
   serverSeed: string, clientSeed: string, nonce: number,
   count: number, maxNum: number
 ): number[] {
-  const drawn = new Set<number>();
+  const drawnMap = new Uint8Array(maxNum + 1);
+  const result: number[] = [];
   let cursor = 0;
+  let drawnCount = 0;
 
-  while (drawn.size < count) {
+  while (drawnCount < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
+    if (drawnMap[num] === 0) {
+      drawnMap[num] = 1;
+      result.push(num);
+      drawnCount++;
+    }
   }
 
-  return Array.from(drawn);
+  return result.sort((a, b) => a - b);
+}
+
+declare global {
+  interface WorkerGlobalScope {
+    _kenoMap?: Uint8Array;
+  }
 }
 
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  // Hoist the array map globally to avoid repeated memory allocation in hot loops
+  if (!self._kenoMap || self._kenoMap.length <= maxNum) {
+    self._kenoMap = new Uint8Array(maxNum + 1);
+  }
+  const kenoMap = self._kenoMap;
+  kenoMap.fill(0, 0, maxNum + 1);
+
+  let cursor = 0;
+  let drawnCount = 0;
+
+  while (drawnCount < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+
+    if (kenoMap[num] === 0) {
+      kenoMap[num] = 1;
+      drawnCount++;
+    }
+  }
+
+  let hits = 0;
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    if (kenoMap[selectedNumbers[i]] === 1) {
+      hits++;
+      if (hits >= minHits) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
