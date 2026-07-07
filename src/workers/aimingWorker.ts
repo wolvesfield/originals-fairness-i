@@ -94,6 +94,15 @@ self.onmessage = (event: MessageEvent) => {
   }
 };
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pre-allocated typed arrays for Web Worker hot loops.
+// Prevents GC pauses from Set and Array.from instantiation during scanning.
+// ─────────────────────────────────────────────────────────────────────────────
+const minesTargetCache = new Uint8Array(256);
+const kenoCache = new Uint8Array(256);
+const kenoTargetCache = new Uint8Array(256);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
@@ -101,6 +110,20 @@ self.onmessage = (event: MessageEvent) => {
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  */
+
+let lastServerSeed: string | null = null;
+let cachedHmac: any = null;
+
+function getHmacInstance(serverSeed: string) {
+  if (serverSeed !== lastServerSeed || !cachedHmac) {
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastServerSeed = serverSeed;
+  } else {
+    cachedHmac.reset();
+  }
+  return cachedHmac;
+}
+
 function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
   const message = `${clientSeed}:${nonce}:${cursor}`;
   return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
@@ -120,34 +143,18 @@ function hashToFloat(hash: string): number {
  * Generate Nth deterministic float for a given round.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  const hmac = getHmacInstance(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize();
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mines — Fisher-Yates shuffle (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Returns mineCount unique cell indices using Fisher-Yates shuffle.
- * Consumes one float per swap via incrementing cursor.
- */
-function generateMinePositions(
-  serverSeed: string, clientSeed: string, nonce: number,
-  mineCount: number, totalCells: number
-): number[] {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
-  let cursor = 0;
-
-  for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
-    cursor++;
-    const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
-  }
-
-  return cells.slice(totalCells - mineCount);
-}
+// generateMinePositions removed in favor of validateMinesState which optimizes this.
 
 /**
  * Truncated search: early-exit if any target tile is already in a mine swap
@@ -160,7 +167,11 @@ function validateMinesState(
 ): boolean {
   const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
+
+  minesTargetCache.fill(0, 0, totalCells + 1);
+  for (let i = 0; i < targetPattern.length; i++) {
+    minesTargetCache[targetPattern[i]] = 1;
+  }
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
@@ -169,7 +180,7 @@ function validateMinesState(
     [cells[i], cells[j]] = [cells[j], cells[i]];
 
     // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
+    if (minesTargetCache[cells[i]] === 1) {
       return false;
     }
   }
@@ -181,31 +192,40 @@ function validateMinesState(
 // Keno — Set-based collision avoidance (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateKenoNumbers(
-  serverSeed: string, clientSeed: string, nonce: number,
-  count: number, maxNum: number
-): number[] {
-  const drawn = new Set<number>();
-  let cursor = 0;
-
-  while (drawn.size < count) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
-    cursor++;
-    const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
-  }
-
-  return Array.from(drawn);
-}
-
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  kenoCache.fill(0, 0, maxNum + 1);
+  kenoTargetCache.fill(0, 0, maxNum + 1);
+
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    kenoTargetCache[selectedNumbers[i]] = 1;
+  }
+
+  let hits = 0;
+  let cursor = 0;
+  let drawnCount = 0;
+
+  while (drawnCount < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+
+    if (kenoCache[num] === 0) {
+      kenoCache[num] = 1;
+      drawnCount++;
+
+      if (kenoTargetCache[num] === 1) {
+        hits++;
+        if (hits >= minHits) {
+          return true; // early exit
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,9 +237,13 @@ function validateCrashState(
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = getHmacInstance(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize();
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  const w0 = hash.words[0] >>> 0;
+  const w1 = hash.words[1] >>> 0;
+  const h = w0 * 1048576 + (w1 >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
