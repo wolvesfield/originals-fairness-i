@@ -9,6 +9,20 @@ import CryptoJS from 'crypto-js'
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  * Returns the full hex digest (64 hex chars / 256 bits).
  */
+
+let lastServerSeed: string | null = null;
+let cachedHmac: any = null;
+
+function getHmacInstance(serverSeed: string) {
+  if (serverSeed !== lastServerSeed || !cachedHmac) {
+    cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastServerSeed = serverSeed;
+  } else {
+    cachedHmac.reset();
+  }
+  return cachedHmac;
+}
+
 export function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): string {
   const message = platform === 'roobet'
     ? `${clientSeed}-${nonce}-${cursor}`
@@ -30,8 +44,16 @@ export function hashToFloat(hash: string): number {
  * Convenience: generate the Nth deterministic float for a given round.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  const hmac = getHmacInstance(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  const int = hash.words[0] >>> 0;
+  return int / 4294967296;
 }
 
 // ---------------------------------------------------------------------------
@@ -51,10 +73,17 @@ export function generateFloat(serverSeed: string, clientSeed: string, nonce: num
  */
 export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonce: number): number {
   const message = `${clientSeed}:${nonce}`
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
 
-  // First 13 hex chars → integer (fits within JS safe integer range: 16^13 ≈ 4.5e15 < 2^53)
-  const h = parseInt(hash.slice(0, 13), 16)
+  const hmac = getHmacInstance(serverSeed);
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  const w0 = hash.words[0] >>> 0;
+  const w1 = hash.words[1] >>> 0;
+  // First 13 hex chars correspond to 52 bits.
+  // 32 bits from w0, 20 bits from w1 (w1 >>> 12)
+  // Since w0 is 32 bits, w0 * 2^20 = w0 * 1048576
+  const h = w0 * 1048576 + (w1 >>> 12)
 
   // House edge: ~3 % of rounds instant-crash at 1.00x
   if (h % 33 === 0) {
@@ -134,6 +163,11 @@ export function generateMinePositions(
  * Uses the float generator; on collision the cursor increments and we redraw
  * until we have the required count.  Default: 10 draws from 1-40.
  */
+
+// Pre-allocated cache for Keno numbers to prevent Set instantiation overhead in hot loops.
+// Max num is typically 40. We use 256 to safely cover any reasonable variation.
+const kenoCache = new Uint8Array(256);
+
 export function generateKenoNumbers(
   serverSeed: string,
   clientSeed: string,
@@ -141,16 +175,22 @@ export function generateKenoNumbers(
   count: number = 10,
   maxNum: number = 40
 ): number[] {
-  const drawn = new Set<number>()
-  let cursor = 0
+  kenoCache.fill(0, 0, maxNum + 1);
+  const drawn: number[] = [];
+  let cursor = 0;
+  let drawnCount = 0;
 
-  while (drawn.size < count) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor)
-    cursor++
+  while (drawnCount < count) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
 
-    const num = Math.floor(float * maxNum) + 1   // 1 .. maxNum
-    drawn.add(num)                                // Set ignores duplicates
+    const num = Math.floor(float * maxNum) + 1;
+    if (kenoCache[num] === 0) {
+      kenoCache[num] = 1;
+      drawn.push(num);
+      drawnCount++;
+    }
   }
 
-  return Array.from(drawn).sort((a, b) => a - b)
+  return drawn.sort((a, b) => a - b);
 }
