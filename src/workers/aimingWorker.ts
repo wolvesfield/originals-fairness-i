@@ -149,6 +149,11 @@ function generateMinePositions(
   return cells.slice(totalCells - mineCount);
 }
 
+// Global buffers for Mines validation to avoid GC
+let globalMinesCells: Uint16Array | null = null;
+let globalMinesTargetMap: Uint8Array | null = null;
+let lastMinesTargetSize = -1;
+
 /**
  * Truncated search: early-exit if any target tile is already in a mine swap
  * position BEFORE finishing all mineCount iterations. This avoids computing
@@ -158,18 +163,37 @@ function validateMinesState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetPattern: number[], mineCount: number, totalCells: number
 ): boolean {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  if (!globalMinesCells || globalMinesCells.length < totalCells) {
+    globalMinesCells = new Uint16Array(totalCells);
+  }
+  if (!globalMinesTargetMap || lastMinesTargetSize < totalCells) {
+    globalMinesTargetMap = new Uint8Array(totalCells);
+    lastMinesTargetSize = totalCells;
+  }
+
+  const cells = globalMinesCells;
+  for (let i = 0; i < totalCells; i++) {
+    cells[i] = i;
+  }
+
+  const targetMap = globalMinesTargetMap;
+  targetMap.fill(0);
+  for (let i = 0; i < targetPattern.length; i++) {
+    targetMap[targetPattern[i]] = 1;
+  }
+
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
+    const tmp = cells[i];
+    cells[i] = cells[j];
+    cells[j] = tmp;
 
     // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
+    if (targetMap[cells[i]] === 1) {
       return false;
     }
   }
@@ -181,31 +205,52 @@ function validateMinesState(
 // Keno — Set-based collision avoidance (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateKenoNumbers(
-  serverSeed: string, clientSeed: string, nonce: number,
-  count: number, maxNum: number
-): number[] {
-  const drawn = new Set<number>();
-  let cursor = 0;
-
-  while (drawn.size < count) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
-    cursor++;
-    const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
-  }
-
-  return Array.from(drawn);
-}
+// Global buffers for Keno validation to avoid GC
+let globalKenoHitMap: Uint8Array | null = null;
+let globalKenoTargetMap: Uint8Array | null = null;
+let lastKenoMaxNum = -1;
 
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  if (!globalKenoHitMap || !globalKenoTargetMap || lastKenoMaxNum < maxNum) {
+    globalKenoHitMap = new Uint8Array(maxNum + 1);
+    globalKenoTargetMap = new Uint8Array(maxNum + 1);
+    lastKenoMaxNum = maxNum;
+  }
+
+  const hitMap = globalKenoHitMap;
+  const targetMap = globalKenoTargetMap;
+
+  hitMap.fill(0);
+  targetMap.fill(0);
+
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    targetMap[selectedNumbers[i]] = 1;
+  }
+
+  let cursor = 0;
+  let uniqueDraws = 0;
+  let hits = 0;
+
+  while (uniqueDraws < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+
+    if (hitMap[num] === 0) {
+      hitMap[num] = 1;
+      uniqueDraws++;
+
+      if (targetMap[num] === 1) {
+        hits++;
+        if (hits >= minHits) return true; // Early exit
+      }
+    }
+  }
+
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
