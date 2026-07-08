@@ -141,15 +141,20 @@ export function generateKenoNumbers(
   count: number = 10,
   maxNum: number = 40
 ): number[] {
-  const drawn = new Set<number>()
+  const hitMap = new Uint8Array(maxNum + 1)
+  const drawn = new Int32Array(count)
   let cursor = 0
+  let drawnCount = 0
 
-  while (drawn.size < count) {
+  while (drawnCount < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor)
     cursor++
 
     const num = Math.floor(float * maxNum) + 1   // 1 .. maxNum
-    drawn.add(num)                                // Set ignores duplicates
+    if (hitMap[num] === 0) {
+      hitMap[num] = 1
+      drawn[drawnCount++] = num
+    }
   }
 
   return Array.from(drawn).sort((a, b) => a - b)
