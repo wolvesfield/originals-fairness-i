@@ -181,31 +181,71 @@ function validateMinesState(
 // Keno — Set-based collision avoidance (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Pre-allocate typed arrays globally to avoid GC pressure in hot paths
+// Domain of keno is typically 1-40. maxNum is 40, so max value is 40. We allocate 41.
+const kenoDrawnSet = new Uint8Array(41);
+const kenoSelectedSet = new Uint8Array(41);
+
 function generateKenoNumbers(
   serverSeed: string, clientSeed: string, nonce: number,
   count: number, maxNum: number
 ): number[] {
-  const drawn = new Set<number>();
+  kenoDrawnSet.fill(0);
+  const result: number[] = [];
   let cursor = 0;
+  let hits = 0;
 
-  while (drawn.size < count) {
+  while (hits < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
+    if (kenoDrawnSet[num] === 0) {
+      kenoDrawnSet[num] = 1;
+      result.push(num);
+      hits++;
+    }
   }
 
-  return Array.from(drawn);
+  return result;
 }
 
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  kenoDrawnSet.fill(0);
+  kenoSelectedSet.fill(0);
+
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    kenoSelectedSet[selectedNumbers[i]] = 1;
+  }
+
+  let cursor = 0;
+  let drawnHits = 0;
+  let matchedHits = 0;
+
+  // Truncated search optimization for Keno
+  while (drawnHits < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+
+    if (kenoDrawnSet[num] === 0) {
+      kenoDrawnSet[num] = 1;
+      drawnHits++;
+
+      if (kenoSelectedSet[num] === 1) {
+        matchedHits++;
+        if (matchedHits >= minHits) return true; // Early exit on success
+      }
+
+      // Early exit on failure: if remaining draws + matchedHits < minHits
+      const remainingDraws = drawCount - drawnHits;
+      if (matchedHits + remainingDraws < minHits) return false;
+    }
+  }
+
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
