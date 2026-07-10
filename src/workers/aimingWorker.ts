@@ -132,22 +132,11 @@ function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cu
  * Returns mineCount unique cell indices using Fisher-Yates shuffle.
  * Consumes one float per swap via incrementing cursor.
  */
-function generateMinePositions(
-  serverSeed: string, clientSeed: string, nonce: number,
-  mineCount: number, totalCells: number
-): number[] {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
-  let cursor = 0;
 
-  for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
-    cursor++;
-    const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
-  }
+// Pre-allocated arrays for Mines to avoid GC during hot loops
+let minesCellsArray = new Int32Array(100);
 
-  return cells.slice(totalCells - mineCount);
-}
+let minesTargetArray = new Uint8Array(100);
 
 /**
  * Truncated search: early-exit if any target tile is already in a mine swap
@@ -158,18 +147,35 @@ function validateMinesState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetPattern: number[], mineCount: number, totalCells: number
 ): boolean {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  if (totalCells > minesCellsArray.length) {
+    minesCellsArray = new Int32Array(totalCells);
+  }
+  if (totalCells > minesTargetArray.length) {
+    minesTargetArray = new Uint8Array(totalCells);
+  }
+
+  for (let i = 0; i < totalCells; i++) {
+    minesCellsArray[i] = i;
+  }
+
+  minesTargetArray.fill(0);
+  for (let i = 0; i < targetPattern.length; i++) {
+    minesTargetArray[targetPattern[i]] = 1;
+  }
+
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
+
+    const temp = minesCellsArray[i];
+    minesCellsArray[i] = minesCellsArray[j];
+    minesCellsArray[j] = temp;
 
     // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
+    if (minesTargetArray[minesCellsArray[i]] === 1) {
       return false;
     }
   }
@@ -181,31 +187,41 @@ function validateMinesState(
 // Keno — Set-based collision avoidance (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateKenoNumbers(
-  serverSeed: string, clientSeed: string, nonce: number,
-  count: number, maxNum: number
-): number[] {
-  const drawn = new Set<number>();
-  let cursor = 0;
 
-  while (drawn.size < count) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
-    cursor++;
-    const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
-  }
+// Pre-allocated arrays for Keno
+let kenoCollisionArray = new Uint8Array(101); // up to maxNum 100
 
-  return Array.from(drawn);
-}
 
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  if (maxNum + 1 > kenoCollisionArray.length) {
+    kenoCollisionArray = new Uint8Array(maxNum + 1);
+  }
+
+  kenoCollisionArray.fill(0);
+  let cursor = 0;
+  let drawnCount = 0;
+
+  while (drawnCount < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+    if (kenoCollisionArray[num] === 0) {
+      kenoCollisionArray[num] = 1;
+      drawnCount++;
+    }
+  }
+
+  let hits = 0;
+  for (let i = 0; i < selectedNumbers.length; i++) {
+    if (kenoCollisionArray[selectedNumbers[i]] === 1) {
+      hits++;
+    }
+  }
+
+  return hits >= minHits;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

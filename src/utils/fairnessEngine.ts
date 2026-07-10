@@ -78,6 +78,17 @@ export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonc
  * deterministic float per swap (incrementing cursor each time), then takes
  * the first `mineCount` elements.
  */
+
+// Pre-allocated array for Mines Fisher-Yates shuffle
+let minesCellsArray = new Int32Array(100);
+
+/**
+ * Returns an array of `mineCount` unique cell indices in [0, totalCells).
+ *
+ * Uses a Fisher-Yates (Knuth) shuffle on the full cell array, consuming one
+ * deterministic float per swap (incrementing cursor each time), then takes
+ * the first `mineCount` elements.
+ */
 export function generateMinePositions(
   serverSeed: string,
   clientSeed: string,
@@ -105,7 +116,14 @@ export function generateMinePositions(
     return mines.sort((a, b) => a - b)
   } else {
     // Stake uses Fisher-Yates
-    const cells: number[] = Array.from({ length: totalCells }, (_, i) => i)
+    if (totalCells > minesCellsArray.length) {
+      minesCellsArray = new Int32Array(totalCells);
+    }
+
+    for (let i = 0; i < totalCells; i++) {
+      minesCellsArray[i] = i;
+    }
+
     let cursor = 0
 
     // Fisher-Yates shuffle (we only need `mineCount` iterations)
@@ -114,12 +132,17 @@ export function generateMinePositions(
       cursor++
 
       const j = Math.floor(float * (i + 1))   // random index in [0, i]
-        // Swap
-        ;[cells[i], cells[j]] = [cells[j], cells[i]]
+      // Swap
+      const temp = minesCellsArray[i];
+      minesCellsArray[i] = minesCellsArray[j];
+      minesCellsArray[j] = temp;
     }
 
     // The last `mineCount` positions in the array are the mines
-    const mines = cells.slice(totalCells - mineCount)
+    const mines = new Array(mineCount);
+    for (let i = 0; i < mineCount; i++) {
+        mines[i] = minesCellsArray[totalCells - mineCount + i];
+    }
     return mines.sort((a, b) => a - b)
   }
 }
@@ -127,6 +150,9 @@ export function generateMinePositions(
 // ---------------------------------------------------------------------------
 // Keno – unique number selection
 // ---------------------------------------------------------------------------
+
+// Pre-allocated array for Keno collision tracking
+let kenoCollisionArray = new Uint8Array(101);
 
 /**
  * Draws exactly `count` unique numbers from [1, maxNum].
@@ -141,16 +167,26 @@ export function generateKenoNumbers(
   count: number = 10,
   maxNum: number = 40
 ): number[] {
-  const drawn = new Set<number>()
-  let cursor = 0
+  if (maxNum + 1 > kenoCollisionArray.length) {
+    kenoCollisionArray = new Uint8Array(maxNum + 1);
+  }
 
-  while (drawn.size < count) {
+  kenoCollisionArray.fill(0);
+  let cursor = 0;
+  let hits = 0;
+  const result = new Array(count);
+
+  while (hits < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor)
     cursor++
 
     const num = Math.floor(float * maxNum) + 1   // 1 .. maxNum
-    drawn.add(num)                                // Set ignores duplicates
+    if (kenoCollisionArray[num] === 0) {
+      kenoCollisionArray[num] = 1;
+      result[hits] = num;
+      hits++;
+    }
   }
 
-  return Array.from(drawn).sort((a, b) => a - b)
+  return result.sort((a, b) => a - b)
 }
