@@ -1,0 +1,3 @@
+## 2024-05-19 - Optimizing SHA256 HMAC for Deterministic Float Generation
+**Learning:** Instantiating `CryptoJS.HmacSHA256` repeatedly for every iteration in a hot loop (like brute-forcing nonces in aimingWorker) is a massive performance bottleneck. String parsing (like `parseInt(hash.slice(0, 8), 16)`) also adds significant overhead.
+**Action:** Use `CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed)` to cache the HMAC instance per `serverSeed`. Reuse it with `.reset()` and `.update()`. Access the first 32 bits of the hash directly via bitwise shift on the `words` array (`hash.words[0] >>> 0`) rather than converting to a hex string and parsing.
