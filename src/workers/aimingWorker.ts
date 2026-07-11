@@ -101,27 +101,20 @@ self.onmessage = (event: MessageEvent) => {
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
+let lastSeedForFloat = '';
+let hmacCacheForFloat: any = null;
 
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
-}
 
-/**
- * Generate Nth deterministic float for a given round.
- */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  if (serverSeed !== lastSeedForFloat || !hmacCacheForFloat) {
+    hmacCacheForFloat = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastSeedForFloat = serverSeed;
+  }
+  hmacCacheForFloat.reset();
+  hmacCacheForFloat.update(`${clientSeed}:${nonce}:${cursor}`);
+  const hash = hmacCacheForFloat.finalize();
+  const w0 = hash.words[0] >>> 0;
+  return w0 / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -132,94 +125,151 @@ function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cu
  * Returns mineCount unique cell indices using Fisher-Yates shuffle.
  * Consumes one float per swap via incrementing cursor.
  */
+const cellsArray = new Int32Array(256); // Safe size up to 256 cells
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function generateMinePositions(
   serverSeed: string, clientSeed: string, nonce: number,
   mineCount: number, totalCells: number
 ): number[] {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  for (let i = 0; i < totalCells; i++) {
+    cellsArray[i] = i;
+  }
   let cursor = 0;
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
+    const temp = cellsArray[i];
+    cellsArray[i] = cellsArray[j];
+    cellsArray[j] = temp;
   }
 
-  return cells.slice(totalCells - mineCount);
+  const mines = new Array(mineCount);
+  for(let i=0; i<mineCount; i++) {
+    mines[i] = cellsArray[totalCells - mineCount + i];
+  }
+  return mines;
 }
 
-/**
- * Truncated search: early-exit if any target tile is already in a mine swap
- * position BEFORE finishing all mineCount iterations. This avoids computing
- * all mine positions when we can already tell a target tile is mined.
- */
+const targetArray = new Uint8Array(256);
 function validateMinesState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetPattern: number[], mineCount: number, totalCells: number
 ): boolean {
-  const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
+  for (let i = 0; i < totalCells; i++) {
+    cellsArray[i] = i;
+  }
+  targetArray.fill(0);
+  for (let i = 0; i < targetPattern.length; i++) {
+      targetArray[targetPattern[i]] = 1;
+  }
+
   let cursor = 0;
-  const targetSet = new Set(targetPattern);
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
 
-    // Truncated search: if this mine position is a target tile, fail early
-    if (targetSet.has(cells[i])) {
+    const temp = cellsArray[i];
+    cellsArray[i] = cellsArray[j];
+    cellsArray[j] = temp;
+
+    if (targetArray[cellsArray[i]] === 1) {
       return false;
     }
   }
 
-  return true; // No target tiles are mines
+  return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Keno — Set-based collision avoidance (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
+const kenoDrawnArray = new Uint8Array(256);
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function generateKenoNumbers(
   serverSeed: string, clientSeed: string, nonce: number,
   count: number, maxNum: number
 ): number[] {
-  const drawn = new Set<number>();
+  kenoDrawnArray.fill(0, 0, maxNum + 2);
+  const result = new Array(count);
+  let resultIdx = 0;
   let cursor = 0;
 
-  while (drawn.size < count) {
+  while (resultIdx < count) {
     const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
     cursor++;
     const num = Math.floor(float * maxNum) + 1;
-    drawn.add(num);
+    if (kenoDrawnArray[num] === 0) {
+      kenoDrawnArray[num] = 1;
+      result[resultIdx++] = num;
+    }
   }
 
-  return Array.from(drawn);
+  return result;
 }
 
 function validateKenoState(
   serverSeed: string, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
-  const drawnSet = new Set(drawn);
-  const hits = selectedNumbers.filter((n) => drawnSet.has(n));
-  return hits.length >= minHits;
+  kenoDrawnArray.fill(0, 0, maxNum + 2);
+  let hits = 0;
+  let uniqueDrawn = 0;
+  let cursor = 0;
+
+  while (uniqueDrawn < drawCount) {
+    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    cursor++;
+    const num = Math.floor(float * maxNum) + 1;
+
+    if (kenoDrawnArray[num] === 0) {
+        kenoDrawnArray[num] = 1;
+        uniqueDrawn++;
+
+        for(let i=0; i<selectedNumbers.length; i++) {
+            if (selectedNumbers[i] === num) {
+                hits++;
+                if (hits >= minHits) {
+                    return true;
+                }
+                break;
+            }
+        }
+    }
+  }
+
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Crash — industry standard (identical to fairnessEngine.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
+let lastSeedForCrash = '';
+let hmacCacheForCrash: any = null;
+
 function validateCrashState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
-  const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  if (serverSeed !== lastSeedForCrash || !hmacCacheForCrash) {
+    hmacCacheForCrash = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    lastSeedForCrash = serverSeed;
+  }
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  hmacCacheForCrash.reset();
+  hmacCacheForCrash.update(`${clientSeed}:${nonce}`);
+  const hash = hmacCacheForCrash.finalize();
+
+  const w0 = hash.words[0] >>> 0;
+  const w1 = hash.words[1] >>> 0;
+  const h = (w0 * 1048576) + (w1 >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
