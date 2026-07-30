@@ -17,7 +17,6 @@ import {
   generateMinePositions,
   generateKenoNumbers,
   calculateCrashPoint,
-  generateFloat,
 } from '../utils/fairnessEngine'
 
 const app = express()
@@ -60,11 +59,18 @@ app.post('/aim/mines', (req, res) => {
   const cap = Math.min(lookAhead, MAX_LOOK_AHEAD)
   const golden: Array<{ nonce: number; mines: number[]; safeTiles: number[] }> = []
 
+  // ⚡ Bolt: Hoist static data generation and Set creation outside the scan loop
+  const targetTilesSet = new Set<number>(targetTiles)
+  const allCells = Array.from({ length: totalCells }, (_, i) => i)
+
   for (let n = nonce; n < nonce + cap; n++) {
     const mines = generateMinePositions(serverSeed, clientSeed, n, mineCount, totalCells)
-    const allSafe = !targetTiles.some((t: number) => mines.includes(t))
-    if (allSafe) {
-      const safeTiles = Array.from({ length: totalCells }, (_, i) => i).filter(i => !mines.includes(i))
+
+    // ⚡ Bolt: Reduce search complexity from O(N) to O(1)
+    const hasMine = mines.some((m: number) => targetTilesSet.has(m))
+    if (!hasMine) {
+      const minesSet = new Set(mines)
+      const safeTiles = allCells.filter(i => !minesSet.has(i))
       golden.push({ nonce: n, mines, safeTiles })
     }
   }
@@ -101,7 +107,10 @@ app.post('/aim/keno', (req, res) => {
 
   for (let n = nonce; n < nonce + cap; n++) {
     const drawn = generateKenoNumbers(serverSeed, clientSeed, n, drawCount, maxNum)
-    const hits = playerPicks.filter((p: number) => drawn.includes(p))
+
+    // ⚡ Bolt: Use O(1) Set lookups instead of O(N) array includes to maintain pick order
+    const drawnSet = new Set(drawn)
+    const hits = playerPicks.filter((p: number) => drawnSet.has(p))
     results.push({ nonce: n, drawn, hits, hitCount: hits.length })
   }
 
