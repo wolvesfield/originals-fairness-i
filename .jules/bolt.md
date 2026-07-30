@@ -1,0 +1,3 @@
+## 2024-05-24 - Cached HMAC and bitwise shift optimization for Web Worker
+**Learning:** Instantiating new CryptoJS.HmacSHA256 for every loop iteration inside the web worker is extremely slow and memory intensive. Additionally, hex string conversion + `parseInt` is unnecessary overhead when we can directly extract the required integer using bitwise operations from the `hash.words` array.
+**Action:** When calculating deterministic float values or crash integers, cache the HMAC object outside the generation function/loop, use `reset()` and `update()`, and extract the integer value from `hash.words` with bitwise operations instead of string allocation and parsing.

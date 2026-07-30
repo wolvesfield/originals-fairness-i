@@ -30,6 +30,10 @@ interface ScanPayload {
   progressBuffer?: SharedArrayBuffer; // Int32Array: [0]=scanned, [1]=found (0/1), [2]=foundNonce
 }
 
+// Global cached HMAC instance for the worker to reuse
+let cachedHmac: any = null;
+let cachedServerSeed: string | null = null;
+
 self.onmessage = (event: MessageEvent) => {
   const { type, payload } = event.data as { type: string; payload: ScanPayload };
 
@@ -38,6 +42,12 @@ self.onmessage = (event: MessageEvent) => {
       startNonce, endNonce, serverSeed, clientSeed, targetPattern,
       gameType = 'MINES', gameConfig = {}, progressBuffer
     } = payload;
+
+    // Initialize or reuse HMAC instance
+    if (!cachedHmac || cachedServerSeed !== serverSeed) {
+      cachedHmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+      cachedServerSeed = serverSeed;
+    }
 
     // Optional SharedArrayBuffer for progress tracking
     let progress: Int32Array | null = null;
@@ -100,9 +110,15 @@ self.onmessage = (event: MessageEvent) => {
 
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
+ * Kept for signature compatibility but uses cached HMAC when possible.
  */
 function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
   const message = `${clientSeed}:${nonce}:${cursor}`;
+  if (cachedHmac && cachedServerSeed === serverSeed) {
+    cachedHmac.reset();
+    cachedHmac.update(message);
+    return cachedHmac.finalize().toString(CryptoJS.enc.Hex);
+  }
   return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
 }
 
@@ -118,8 +134,16 @@ function hashToFloat(hash: string): number {
 
 /**
  * Generate Nth deterministic float for a given round.
+ * Optimized with cached HMAC and bitwise extraction.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
+  if (cachedHmac && cachedServerSeed === serverSeed) {
+    cachedHmac.reset();
+    cachedHmac.update(`${clientSeed}:${nonce}:${cursor}`);
+    const hash = cachedHmac.finalize();
+    // Bitwise extraction from first 32 bits instead of hex parsing
+    return (hash.words[0] >>> 0) / 4294967296;
+  }
   const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
   return hashToFloat(hash);
 }
@@ -217,9 +241,18 @@ function validateCrashState(
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  let h: number;
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  if (cachedHmac && cachedServerSeed === serverSeed) {
+    cachedHmac.reset();
+    cachedHmac.update(message);
+    const hash = cachedHmac.finalize();
+    // Bitwise extraction of the first 52 bits
+    h = (hash.words[0] >>> 0) * 1048576 + (hash.words[1] >>> 12);
+  } else {
+    const hashStr = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+    h = parseInt(hashStr.slice(0, 13), 16);
+  }
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
