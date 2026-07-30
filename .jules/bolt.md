@@ -1,0 +1,4 @@
+
+## 2024-05-28 - CryptoJS High-Frequency Instantiation Bottleneck
+**Learning:** In ultra-high frequency loops (like nonce scanning in Web Workers), repeatedly calling `CryptoJS.algo.HMAC.create()` or `CryptoJS.HmacSHA256()` introduces massive garbage collection and instantiation overhead. Furthermore, converting the result to a hex string via `.toString(CryptoJS.enc.Hex)` just to parse the first 8 characters into an integer is extremely inefficient.
+**Action:** When calculating deterministic floats in tight loops, cache the HMAC instance by `serverSeed` using `CryptoJS.algo.HMAC.create`, then reuse it using `hmac.reset()` and `hmac.update()`. Instead of string conversion, directly access the first 32-bit word (`hashWord.words[0] >>> 0`) to derive the float. This can speed up operations by ~3x.
