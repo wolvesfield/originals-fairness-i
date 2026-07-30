@@ -60,11 +60,27 @@ app.post('/aim/mines', (req, res) => {
   const cap = Math.min(lookAhead, MAX_LOOK_AHEAD)
   const golden: Array<{ nonce: number; mines: number[]; safeTiles: number[] }> = []
 
+  // Hoist static cell index generation outside the loop
+  const cellIndices = Array.from({ length: totalCells }, (_, i) => i)
+  // Pre-compute O(1) lookup set for target tiles
+  const targetTilesSet = new Set(targetTiles)
+
   for (let n = nonce; n < nonce + cap; n++) {
     const mines = generateMinePositions(serverSeed, clientSeed, n, mineCount, totalCells)
-    const allSafe = !targetTiles.some((t: number) => mines.includes(t))
+
+    // Check if any mine hits a target tile using O(1) Set lookup
+    let allSafe = true
+    for (let i = 0; i < mines.length; i++) {
+      if (targetTilesSet.has(mines[i])) {
+        allSafe = false
+        break
+      }
+    }
+
     if (allSafe) {
-      const safeTiles = Array.from({ length: totalCells }, (_, i) => i).filter(i => !mines.includes(i))
+      // Use Set.has instead of Array.includes for O(1) safe tile generation
+      const mineSet = new Set(mines)
+      const safeTiles = cellIndices.filter((i: number) => !mineSet.has(i))
       golden.push({ nonce: n, mines, safeTiles })
     }
   }
@@ -99,9 +115,13 @@ app.post('/aim/keno', (req, res) => {
   const cap = Math.min(lookAhead, MAX_LOOK_AHEAD)
   const results: Array<{ nonce: number; drawn: number[]; hits: number[]; hitCount: number }> = []
 
+  // Create a reusable Set for O(1) lookup against drawn numbers inside the loop
   for (let n = nonce; n < nonce + cap; n++) {
     const drawn = generateKenoNumbers(serverSeed, clientSeed, n, drawCount, maxNum)
-    const hits = playerPicks.filter((p: number) => drawn.includes(p))
+    // Create Set from drawn numbers for O(1) check
+    const drawnSet = new Set(drawn)
+    // Filter playerPicks to maintain original order and use Set.has
+    const hits = playerPicks.filter((p: number) => drawnSet.has(p))
     results.push({ nonce: n, drawn, hits, hitCount: hits.length })
   }
 
