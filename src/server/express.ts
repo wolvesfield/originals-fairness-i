@@ -17,7 +17,6 @@ import {
   generateMinePositions,
   generateKenoNumbers,
   calculateCrashPoint,
-  generateFloat,
 } from '../utils/fairnessEngine'
 
 const app = express()
@@ -60,11 +59,17 @@ app.post('/aim/mines', (req, res) => {
   const cap = Math.min(lookAhead, MAX_LOOK_AHEAD)
   const golden: Array<{ nonce: number; mines: number[]; safeTiles: number[] }> = []
 
+  // Pre-allocate Set and all-cells array outside the loop for performance
+  const targetSet = new Set(targetTiles)
+  const allCells = Array.from({ length: totalCells }, (_, i) => i)
+
   for (let n = nonce; n < nonce + cap; n++) {
     const mines = generateMinePositions(serverSeed, clientSeed, n, mineCount, totalCells)
-    const allSafe = !targetTiles.some((t: number) => mines.includes(t))
+    // O(1) lookups via Set.has instead of O(N) array.includes
+    const allSafe = !mines.some(m => targetSet.has(m))
     if (allSafe) {
-      const safeTiles = Array.from({ length: totalCells }, (_, i) => i).filter(i => !mines.includes(i))
+      const minesSet = new Set(mines)
+      const safeTiles = allCells.filter(i => !minesSet.has(i))
       golden.push({ nonce: n, mines, safeTiles })
     }
   }
@@ -101,7 +106,9 @@ app.post('/aim/keno', (req, res) => {
 
   for (let n = nonce; n < nonce + cap; n++) {
     const drawn = generateKenoNumbers(serverSeed, clientSeed, n, drawCount, maxNum)
-    const hits = playerPicks.filter((p: number) => drawn.includes(p))
+    // Reduce array lookup complexity from O(N^2) to O(N) using Set
+    const drawnSet = new Set(drawn)
+    const hits = playerPicks.filter((p: number) => drawnSet.has(p))
     results.push({ nonce: n, drawn, hits, hitCount: hits.length })
   }
 
