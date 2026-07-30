@@ -105,7 +105,6 @@ export class Orchestrator {
     console.log('╚══════════════════════════════════════╝');
     console.log(`Polling every ${intervalMs / 1000}s...\n`);
 
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       try {
         await this.runAutomatedCycle(authToken);
