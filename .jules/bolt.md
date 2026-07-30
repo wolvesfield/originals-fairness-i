@@ -1,0 +1,3 @@
+## 2025-03-05 - Optimize HMAC-SHA256 Float Generation
+**Learning:** High-frequency deterministic sequence generation using `CryptoJS.HmacSHA256().toString(CryptoJS.enc.Hex)` causes severe garbage collection and overhead by constantly instantiating HMAC instances and doing string formatting/parsing via `parseInt(hash.slice(...), 16)`.
+**Action:** When working in hot paths (like nonce scanning in workers), cache `CryptoJS.algo.HMAC.create(...)` keyed by the seed. Reuse it via `.reset().update(message).finalize()`. Extract numerical values directly using bitwise math on `hash.words` (e.g. `hash.words[0] >>> 0` for a 32-bit float, or combining `words[0]` and `words[1]` for 52-bit multipliers) to avoid all hex string allocations.
