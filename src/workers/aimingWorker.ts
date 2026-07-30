@@ -106,6 +106,21 @@ function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, curso
   return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
 }
 
+// Cache HMAC instances to avoid expensive instantiation and garbage collection in hot loops
+const hmacCache = new Map<string, any>();
+
+function getHmacInstance(serverSeed: string) {
+  let hmac = hmacCache.get(serverSeed);
+  if (!hmac) {
+    if (hmacCache.size > 10) hmacCache.clear();
+    hmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+    hmacCache.set(serverSeed, hmac);
+  } else {
+    hmac.reset();
+  }
+  return hmac;
+}
+
 /**
  * Convert first 4 bytes (8 hex chars) to float in [0, 1).
  * int(first_8_hex) / 2^32
@@ -118,10 +133,17 @@ function hashToFloat(hash: string): number {
 
 /**
  * Generate Nth deterministic float for a given round.
+ * Optimized with HMAC instance caching and direct bitwise math.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const hmac = getHmacInstance(serverSeed);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  // Extract 32-bit float without string allocations
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,10 +238,14 @@ function validateCrashState(
   serverSeed: string, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
+  const hmac = getHmacInstance(serverSeed);
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  hmac.update(message);
+  const hash = hmac.finalize();
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  const w0 = hash.words[0] >>> 0;
+  const w1 = hash.words[1] >>> 0;
+  const h = w0 * 1048576 + (w1 >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
