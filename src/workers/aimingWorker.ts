@@ -1,4 +1,5 @@
 import CryptoJS from 'crypto-js';
+import { HMACCaching } from '../utils/hmacCache';
 
 /**
  * UHF Operational Brain — Enhanced for All Games
@@ -98,30 +99,23 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
- */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
-  const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
+const workerHmacCache = new HMACCaching();
 
 /**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
-}
-
-/**
- * Generate Nth deterministic float for a given round.
+ * Generate Nth deterministic float for a given round using optimized HMAC caching.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+
+  const hmac = workerHmacCache.get(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  // Extract first 4 bytes (8 hex chars) directly from words array
+  // words[0] contains the first 4 bytes as a 32-bit signed int, `>>> 0` makes it unsigned
+  const int = hash.words[0] >>> 0;
+  return int / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,7 +211,11 @@ function validateCrashState(
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+
+  const hmac = workerHmacCache.get(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize().toString(CryptoJS.enc.Hex);
 
   const h = parseInt(hash.slice(0, 13), 16);
 

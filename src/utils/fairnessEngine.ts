@@ -1,4 +1,5 @@
 import CryptoJS from 'crypto-js'
+import { globalHmacCache } from './hmacCache'
 
 // ---------------------------------------------------------------------------
 // Core: Deterministic float from HMAC-SHA256
@@ -30,8 +31,19 @@ export function hashToFloat(hash: string): number {
  * Convenience: generate the Nth deterministic float for a given round.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  const hmac = globalHmacCache.get(serverSeed)
+  hmac.reset()
+  hmac.update(message)
+  const hash = hmac.finalize()
+
+  // Extract first 4 bytes (8 hex chars) directly from words array
+  // words[0] contains the first 4 bytes as a 32-bit signed int, `>>> 0` makes it unsigned
+  const int = hash.words[0] >>> 0
+  return int / 4294967296
 }
 
 // ---------------------------------------------------------------------------
@@ -51,7 +63,11 @@ export function generateFloat(serverSeed: string, clientSeed: string, nonce: num
  */
 export function calculateCrashPoint(serverSeed: string, clientSeed: string, nonce: number): number {
   const message = `${clientSeed}:${nonce}`
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex)
+
+  const hmac = globalHmacCache.get(serverSeed)
+  hmac.reset()
+  hmac.update(message)
+  const hash = hmac.finalize().toString(CryptoJS.enc.Hex)
 
   // First 13 hex chars → integer (fits within JS safe integer range: 16^13 ≈ 4.5e15 < 2^53)
   const h = parseInt(hash.slice(0, 13), 16)
