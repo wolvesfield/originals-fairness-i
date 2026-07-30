@@ -1,0 +1,3 @@
+## 2024-05-18 - Hoisting static data and using Sets in scan loops
+**Learning:** In the headless API worker endpoint (`src/server/express.ts`), the scan loops for nonces can run up to 10,000 times per request. Doing unnecessary work inside these loops, such as allocating static reference arrays (`Array.from({ length: 25 }, ...)`) or repeatedly using `Array.includes()` for O(N) lookup operations heavily impacts performance.
+**Action:** Always hoist static data generation (like `Array.from` for cell index bounds) out of the main execution loop to prevent excessive garbage collection, and always convert target or result arrays to `Set` objects inside the loop for fast O(1) membership checks (`Set.has()`).
