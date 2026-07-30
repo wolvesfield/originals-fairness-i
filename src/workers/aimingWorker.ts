@@ -98,12 +98,37 @@ self.onmessage = (event: MessageEvent) => {
 // Core crypto — matches fairnessEngine.ts exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Optimization: Bounded LRU cache for HMAC instances
+const hmacCache = new Map<string, any>();
+const MAX_CACHE_SIZE = 10; // Keep small, worker typically processes 1-2 seeds at a time
+
+function getCachedHmac(serverSeed: string): any {
+  if (hmacCache.has(serverSeed)) {
+    const hmac = hmacCache.get(serverSeed);
+    hmacCache.delete(serverSeed);
+    hmacCache.set(serverSeed, hmac);
+    return hmac;
+  }
+
+  const hmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+  hmacCache.set(serverSeed, hmac);
+
+  if (hmacCache.size > MAX_CACHE_SIZE) {
+    const firstKey = hmacCache.keys().next().value;
+    if (firstKey) hmacCache.delete(firstKey);
+  }
+
+  return hmac;
+}
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  */
 function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
   const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = getCachedHmac(serverSeed).clone();
+  hmac.update(message);
+  return hmac.finalize().toString(CryptoJS.enc.Hex);
 }
 
 /**
@@ -118,10 +143,16 @@ function hashToFloat(hash: string): number {
 
 /**
  * Generate Nth deterministic float for a given round.
+ * Optimized: uses cached HMAC and direct integer division instead of stringification.
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  const hmac = getCachedHmac(serverSeed).clone();
+  hmac.update(message);
+  const hashObj = hmac.finalize();
+
+  const intVal = hashObj.words[0] >>> 0;
+  return intVal / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,9 +248,14 @@ function validateCrashState(
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  const hmac = getCachedHmac(serverSeed).clone();
+  hmac.update(message);
+  const hashObj = hmac.finalize();
+
+  const w0 = hashObj.words[0] >>> 0;
+  const w1 = hashObj.words[1] >>> 0;
+  const h = w0 * 1048576 + (w1 >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
