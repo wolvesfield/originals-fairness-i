@@ -1,4 +1,5 @@
 import CryptoJS from 'crypto-js';
+import { HMACCaching } from '../utils/hmacCache';
 
 /**
  * UHF Operational Brain — Enhanced for All Games
@@ -10,6 +11,9 @@ import CryptoJS from 'crypto-js';
  *  - Progress reporting via SharedArrayBuffer (Atomics)
  *  - Truncated search: early-exit heuristic for Mines
  */
+
+// Local HMAC cache for worker
+const localHmacCache = new HMACCaching(10);
 
 /* ── Types ── */
 interface ScanPayload {
@@ -103,7 +107,10 @@ self.onmessage = (event: MessageEvent) => {
  */
 function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
   const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = localHmacCache.get(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  return hmac.finalize().toString(CryptoJS.enc.Hex);
 }
 
 /**
@@ -118,10 +125,17 @@ function hashToFloat(hash: string): number {
 
 /**
  * Generate Nth deterministic float for a given round.
+ * ⚡ Bolt: Uses optimized bitwise operations on cached HMAC
  */
 function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  const message = `${clientSeed}:${nonce}:${cursor}`;
+  const hmac = localHmacCache.get(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  const hashWord = hmac.finalize();
+
+  const int = hashWord.words[0] >>> 0;
+  return int / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,7 +231,10 @@ function validateCrashState(
   targetMultiplier: number
 ): boolean {
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  const hmac = localHmacCache.get(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize().toString(CryptoJS.enc.Hex);
 
   const h = parseInt(hash.slice(0, 13), 16);
 
