@@ -5,6 +5,29 @@ import CryptoJS from 'crypto-js'
 // Produces a value in [0, 1) – never uses Math.random().
 // ---------------------------------------------------------------------------
 
+// Memory optimization - track instantiated HMACs with LRU cache to prevent memory leaks
+class SimpleLRU {
+  private cache = new Map<string, any>();
+  constructor(private limit = 10) {}
+  get(key: string) {
+    if (!this.cache.has(key)) {
+      if (this.cache.size >= this.limit) {
+        // Remove first item (oldest inserted)
+        const firstKey = this.cache.keys().next().value;
+        this.cache.delete(firstKey);
+      }
+      this.cache.set(key, CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, key));
+    } else {
+      // Refresh order
+      const val = this.cache.get(key);
+      this.cache.delete(key);
+      this.cache.set(key, val);
+    }
+    return this.cache.get(key);
+  }
+}
+const hmacCache = new SimpleLRU(5);
+
 /**
  * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
  * Returns the full hex digest (64 hex chars / 256 bits).
@@ -28,10 +51,20 @@ export function hashToFloat(hash: string): number {
 
 /**
  * Convenience: generate the Nth deterministic float for a given round.
+ * Optimized hot path: reuses HMAC instances and bypasses hex string conversion.
  */
 export function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number, platform: 'stake' | 'roobet' = 'stake'): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor, platform)
-  return hashToFloat(hash)
+  const message = platform === 'roobet'
+    ? `${clientSeed}-${nonce}-${cursor}`
+    : `${clientSeed}:${nonce}:${cursor}`
+
+  const hmac = hmacCache.get(serverSeed);
+  hmac.reset();
+  hmac.update(message);
+  const hash = hmac.finalize();
+
+  // Extract first 32-bit word directly and divide by 2^32
+  return (hash.words[0] >>> 0) / 4294967296;
 }
 
 // ---------------------------------------------------------------------------
