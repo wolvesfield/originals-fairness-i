@@ -1,0 +1,3 @@
+## 2024-04-05 - HMAC State Initialization Bottleneck
+**Learning:** Instantiating new `crypto-js` objects via `.toString(Hex)` on every loop iteration inside an Ultra-High Frequency (UHF) web worker incurs a massive string allocation and garbage collection cost, dramatically slowing down hashing throughput.
+**Action:** Always pre-allocate the HMAC instance state via `CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, key)` outside hot loops. Reset it via `.reset()` and calculate using `.update()`. Never use strings for high-throughput math; pull bits directly off the `.words` int32 array for speed.

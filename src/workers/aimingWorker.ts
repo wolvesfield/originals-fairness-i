@@ -45,6 +45,9 @@ self.onmessage = (event: MessageEvent) => {
       progress = new Int32Array(progressBuffer);
     }
 
+    // Pre-create HMAC instance and cache it for the entire batch
+    const hmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, serverSeed);
+
     for (let nonce = startNonce; nonce <= endNonce; nonce++) {
       // Check if another worker already found a result (kill-switch via Atomics)
       if (progress && Atomics.load(progress, 1) === 1) {
@@ -58,19 +61,19 @@ self.onmessage = (event: MessageEvent) => {
         case 'MINES': {
           const mineCount = gameConfig.mineCount ?? 3;
           const totalCells = gameConfig.totalCells ?? 25;
-          isGold = validateMinesState(serverSeed, clientSeed, nonce, targetPattern, mineCount, totalCells);
+          isGold = validateMinesState(hmac, clientSeed, nonce, targetPattern, mineCount, totalCells);
           break;
         }
         case 'KENO': {
           const drawCount = gameConfig.drawCount ?? 20;
           const maxNum = gameConfig.maxNum ?? 40;
           const minHits = gameConfig.minKenoHits ?? Math.ceil(targetPattern.length * 0.5);
-          isGold = validateKenoState(serverSeed, clientSeed, nonce, targetPattern, drawCount, maxNum, minHits);
+          isGold = validateKenoState(hmac, clientSeed, nonce, targetPattern, drawCount, maxNum, minHits);
           break;
         }
         case 'CRASH': {
           const targetMultiplier = gameConfig.targetMultiplier ?? 2.0;
-          isGold = validateCrashState(serverSeed, clientSeed, nonce, targetMultiplier);
+          isGold = validateCrashState(hmac, clientSeed, nonce, targetMultiplier);
           break;
         }
       }
@@ -99,29 +102,16 @@ self.onmessage = (event: MessageEvent) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * HMAC_SHA256(key = serverSeed, message = clientSeed:nonce:cursor)
+ * Generate Nth deterministic float for a given round using a cached HMAC instance.
  */
-function hmacSha256(serverSeed: string, clientSeed: string, nonce: number, cursor: number): string {
+function generateFloat(hmac: any, clientSeed: string, nonce: number, cursor: number): number {
+  hmac.reset();
   const message = `${clientSeed}:${nonce}:${cursor}`;
-  return CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
-}
+  hmac.update(message);
+  const hashObj = hmac.finalize();
 
-/**
- * Convert first 4 bytes (8 hex chars) to float in [0, 1).
- * int(first_8_hex) / 2^32
- */
-function hashToFloat(hash: string): number {
-  const slice = hash.slice(0, 8);
-  const int = parseInt(slice, 16);
-  return int / 4294967296;
-}
-
-/**
- * Generate Nth deterministic float for a given round.
- */
-function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cursor: number): number {
-  const hash = hmacSha256(serverSeed, clientSeed, nonce, cursor);
-  return hashToFloat(hash);
+  // Extract 32-bit int and divide for [0, 1) float
+  return (hashObj.words[0] >>> 0) / 4294967296;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -133,14 +123,14 @@ function generateFloat(serverSeed: string, clientSeed: string, nonce: number, cu
  * Consumes one float per swap via incrementing cursor.
  */
 function generateMinePositions(
-  serverSeed: string, clientSeed: string, nonce: number,
+  hmac: any, clientSeed: string, nonce: number,
   mineCount: number, totalCells: number
 ): number[] {
   const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
   let cursor = 0;
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    const float = generateFloat(hmac, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
     [cells[i], cells[j]] = [cells[j], cells[i]];
@@ -155,7 +145,7 @@ function generateMinePositions(
  * all mine positions when we can already tell a target tile is mined.
  */
 function validateMinesState(
-  serverSeed: string, clientSeed: string, nonce: number,
+  hmac: any, clientSeed: string, nonce: number,
   targetPattern: number[], mineCount: number, totalCells: number
 ): boolean {
   const cells: number[] = Array.from({ length: totalCells }, (_, i) => i);
@@ -163,7 +153,7 @@ function validateMinesState(
   const targetSet = new Set(targetPattern);
 
   for (let i = totalCells - 1; i > totalCells - 1 - mineCount; i--) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    const float = generateFloat(hmac, clientSeed, nonce, cursor);
     cursor++;
     const j = Math.floor(float * (i + 1));
     [cells[i], cells[j]] = [cells[j], cells[i]];
@@ -182,14 +172,14 @@ function validateMinesState(
 // ─────────────────────────────────────────────────────────────────────────────
 
 function generateKenoNumbers(
-  serverSeed: string, clientSeed: string, nonce: number,
+  hmac: any, clientSeed: string, nonce: number,
   count: number, maxNum: number
 ): number[] {
   const drawn = new Set<number>();
   let cursor = 0;
 
   while (drawn.size < count) {
-    const float = generateFloat(serverSeed, clientSeed, nonce, cursor);
+    const float = generateFloat(hmac, clientSeed, nonce, cursor);
     cursor++;
     const num = Math.floor(float * maxNum) + 1;
     drawn.add(num);
@@ -199,10 +189,10 @@ function generateKenoNumbers(
 }
 
 function validateKenoState(
-  serverSeed: string, clientSeed: string, nonce: number,
+  hmac: any, clientSeed: string, nonce: number,
   selectedNumbers: number[], drawCount: number, maxNum: number, minHits: number
 ): boolean {
-  const drawn = generateKenoNumbers(serverSeed, clientSeed, nonce, drawCount, maxNum);
+  const drawn = generateKenoNumbers(hmac, clientSeed, nonce, drawCount, maxNum);
   const drawnSet = new Set(drawn);
   const hits = selectedNumbers.filter((n) => drawnSet.has(n));
   return hits.length >= minHits;
@@ -213,13 +203,17 @@ function validateKenoState(
 // ─────────────────────────────────────────────────────────────────────────────
 
 function validateCrashState(
-  serverSeed: string, clientSeed: string, nonce: number,
+  hmac: any, clientSeed: string, nonce: number,
   targetMultiplier: number
 ): boolean {
+  hmac.reset();
   const message = `${clientSeed}:${nonce}`;
-  const hash = CryptoJS.HmacSHA256(message, serverSeed).toString(CryptoJS.enc.Hex);
+  hmac.update(message);
+  const hashObj = hmac.finalize();
 
-  const h = parseInt(hash.slice(0, 13), 16);
+  // Combine top 2 words for 52-bit integer:
+  // words[0] brings the first 32 bits, words[1] brings the next 20 bits.
+  const h = (hashObj.words[0] >>> 0) * 1048576 + (hashObj.words[1] >>> 12);
 
   // House edge: ~3% instant crash
   if (h % 33 === 0) return 1.0 >= targetMultiplier;
